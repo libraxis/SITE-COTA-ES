@@ -134,7 +134,7 @@
     <section id="fornecedoresView" class="view hidden">
       <div class="card supplier-hero">
         <div class="card-head"><div><div class="eyebrow">MAPA DE FORNECEDORES</div><h3>Fornecedores de licitações públicas</h3></div></div>
-        <p class="muted">Pesquise o descritivo do item. O sistema consulta dados públicos do PNCP, localiza itens compatíveis e reúne os fornecedores com resultados homologados.</p>
+        <p class="muted">Pesquise o descritivo do item. O sistema usa busca inteligente, cache e consultas paralelas no PNCP e Compras.gov.br para ampliar a cobertura sem repetir consultas desnecessárias.</p>
         <form id="supplierSearchForm" class="supplier-search">
           <div class="grow"><label>Descritivo do item</label><input id="supplierQuery" required minlength="3" placeholder="Ex.: papel A4, computador, material elétrico"></div>
           <div><label>UF</label><select id="supplierUf"><option value="">Todas</option><option>AC</option><option>AL</option><option>AP</option><option>AM</option><option>BA</option><option>CE</option><option>DF</option><option>ES</option><option>GO</option><option>MA</option><option>MT</option><option>MS</option><option>MG</option><option>PA</option><option>PB</option><option>PR</option><option>PE</option><option>PI</option><option>RJ</option><option>RN</option><option>RS</option><option>RO</option><option>RR</option><option>SC</option><option>SP</option><option>SE</option><option>TO</option></select></div>
@@ -142,7 +142,7 @@
         </form>
         <div class="supplier-source">Fontes: <b>PNCP + Compras.gov.br</b>. O sistema cruza os resultados das fontes públicas e elimina fornecedores duplicados. Telefone, quando localizado, vem de dado cadastral público de CNPJ; caso contrário aparece “SEM TELEFONE PUBLICO”.</div>
       </div>
-      <div id="supplierLoading" class="card hidden"><div class="notice">Consultando PNCP e Compras.gov.br em paralelo, ampliando a amostra de licitações e fornecedores. A pesquisa continua mesmo se uma fonte estiver instável...</div></div>
+      <div id="supplierLoading" class="card hidden"><div class="notice">Busca inteligente em andamento: consultando PNCP e Compras.gov.br em paralelo, ampliando a amostra de licitações e fornecedores. A pesquisa continua mesmo se uma fonte estiver instável...</div></div>
       <div id="supplierStats" class="stats hidden">
         <div class="stat"><span>Fornecedores</span><strong id="supplierStatTotal">—</strong></div>
         <div class="stat"><span>ME / EPP</span><strong id="supplierStatMe">—</strong></div>
@@ -162,7 +162,7 @@
     <section id="atasView" class="view hidden">
       <div class="card supplier-hero">
         <div class="card-head"><div><div class="eyebrow">ATA DE REGISTRO DE PREÇOS</div><h3>Atas vigentes disponíveis para adesão</h3></div></div>
-        <p class="muted">Pesquise um item e encontre atas de registro de preços vigentes que informem expressamente a possibilidade de adesão. O resultado cruza PNCP e Compras.gov.br.</p>
+        <p class="muted">Pesquise um item e encontre atas vigentes com possibilidade de adesão. O sistema usa busca inteligente, consulta o detalhe oficial da ata e tenta enriquecer automaticamente o resultado com fornecedor, CNPJ e vigência.</p>
         <form id="ataSearchForm" class="supplier-search">
           <div class="grow"><label>Descritivo do item</label><input id="ataQuery" required minlength="3" placeholder="Ex.: papel A4, computador, material elétrico"></div>
           <div><label>UF</label><select id="ataUf"><option value="">Todas</option><option>AC</option><option>AL</option><option>AP</option><option>AM</option><option>BA</option><option>CE</option><option>DF</option><option>ES</option><option>GO</option><option>MA</option><option>MT</option><option>MS</option><option>MG</option><option>PA</option><option>PB</option><option>PR</option><option>PE</option><option>PI</option><option>RJ</option><option>RN</option><option>RS</option><option>RO</option><option>RR</option><option>SC</option><option>SP</option><option>SE</option><option>TO</option></select></div>
@@ -170,7 +170,7 @@
         </form>
         <div class="supplier-source">Fontes: <b>PNCP + Compras.gov.br</b>. A tela prioriza atas vigentes com indicação explícita de “Permite Adesão”.</div>
       </div>
-      <div id="ataLoading" class="card hidden"><div class="notice">Consultando PNCP e Compras.gov.br em paralelo e verificando atas vigentes com possibilidade de adesão...</div></div>
+      <div id="ataLoading" class="card hidden"><div class="notice">Busca inteligente em andamento: consultando atas vigentes em paralelo e enriquecendo os resultados com fornecedor, CNPJ, vigência e possibilidade de adesão...</div></div>
       <div id="ataNotice" class="notice hidden"></div>
       <div id="ataStats" class="stats hidden">
         <div class="stat"><span>Atas encontradas</span><strong id="ataStatTotal">—</strong></div>
