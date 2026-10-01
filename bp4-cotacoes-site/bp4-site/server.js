@@ -6,6 +6,8 @@ const crypto = require("crypto");
 const path = require("path");
 
 const app = express();
+// Render/Reverse proxy: permite que express-session reconheça HTTPS e envie o cookie seguro.
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
 const BP4_BASE = process.env.BP4_BASE_URL || "https://api.bancodeprecos.com.br";
 
@@ -94,10 +96,12 @@ async function ensureJwt(req) {
   try { data = text ? JSON.parse(text) : null; } catch (_) {}
 
   if (!response.ok || !data || !data.token) {
-    const err = new Error(
-      (data && (data.message || data.mensagem || data.title)) ||
-      `Falha na autenticação BP4 (HTTP ${response.status})`
-    );
+    let message = (data && (data.message || data.mensagem || data.title)) ||
+      `Falha na autenticação BP4 (HTTP ${response.status})`;
+    if (response.status === 401) {
+      message = "O Token de Acesso API-Banco de Preços foi rejeitado pela BP4. Confira o token em Configurações > Preferências > Token de Acesso API-Banco de Preços.";
+    }
+    const err = new Error(message);
     err.status = response.status || 401;
     err.data = data;
     throw err;
@@ -132,8 +136,17 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
   req.session.jwt = null;
   req.session.jwtExpiresAt = 0;
 
-  await ensureJwt(req);
-  res.json({ ok: true, message: "Autenticado com sucesso. JWT válido por até 8 horas." });
+  try {
+    await ensureJwt(req);
+    await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+    res.json({ ok: true, message: "Autenticado com sucesso. JWT válido por até 8 horas." });
+  } catch (err) {
+    req.session.apiToken = null;
+    req.session.jwt = null;
+    req.session.jwtExpiresAt = 0;
+    await new Promise(resolve => req.session.save(() => resolve()));
+    throw err;
+  }
 }));
 
 app.post("/api/auth/logout", asyncRoute(async (req, res) => {
@@ -141,8 +154,9 @@ app.post("/api/auth/logout", asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/auth/status", asyncRoute(async (req, res) => {
+  if (req.session.apiToken) await ensureJwt(req);
   res.json({
-    authenticated: !!req.session.apiToken,
+    authenticated: !!req.session.apiToken && !!req.session.jwt,
     jwtValidUntil: req.session.jwtExpiresAt || null
   });
 }));
