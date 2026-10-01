@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ST Cotações 1.0</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">BP</div>
+      <div><strong>ST Cotações 1.0</strong><small>painel de integração</small></div>
+    </div>
+    <nav>
+      <button class="nav active" data-view="fornecedores">Fornecedores</button>
+      <button class="nav" data-view="atas">ATA de Registro de Preços</button>
+      <button class="nav" data-view="painel">Painel</button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div id="authBadge" class="auth-badge offline">Desconectado</div>
+      <button id="logoutBtn" class="ghost danger">Sair</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">ST Cotações 1.0 • Integração de compras públicas</div>
+        <h1 id="pageTitle">Visão geral</h1>
+      </div>
+      <div class="top-actions">
+        <div class="refresh-wrap"><button class="ghost" id="refreshBtn">Atualizar</button><small id="refreshStatus" class="refresh-status hidden">Atualizando...</small></div>
+      </div>
+    </header>
+
+    <section id="loginView" class="view login-view">
+      <div class="login-card">
+        <div class="logo large">BP</div>
+        <h2>Conectar à API do Banco de Preços</h2>
+        <p>Informe seu <b>Token de Acesso API-Banco de Preços</b>. O token fica somente no servidor desta sessão e não é enviado ao navegador para chamadas posteriores.</p>
+        <label>Token de acesso</label>
+        <form id="loginForm" autocomplete="off">
+          <input id="apiToken" name="usuarioApiToken" type="password" placeholder="Cole seu token aqui" autocomplete="off" spellcheck="false">
+          <button id="loginBtn" type="submit" class="primary full">Conectar</button>
+        </form>
+        <small class="muted">Nunca compartilhe seu token em chats, repositórios ou código público.</small>
+      </div>
+    </section>
+
+
+    <section id="fornecedoresView" class="view hidden">
+      <div class="card supplier-hero">
+        <div class="card-head"><div><div class="eyebrow">MAPA DE FORNECEDORES</div><h3>Fornecedores de licitações públicas</h3></div></div>
+        <p class="muted">Pesquise o descritivo do item. O sistema usa busca inteligente, cache e consultas paralelas no PNCP e Compras.gov.br para ampliar a cobertura sem repetir consultas desnecessárias.</p>
+        <form id="supplierSearchForm" class="supplier-search">
+          <div class="grow"><label>Descritivo do item</label><input id="supplierQuery" required minlength="3" placeholder="Ex.: papel A4, computador, material elétrico"></div>
+          <div><label>UF</label><select id="supplierUf"><option value="">Todas</option><option>AC</option><option>AL</option><option>AP</option><option>AM</option><option>BA</option><option>CE</option><option>DF</option><option>ES</option><option>GO</option><option>MA</option><option>MT</option><option>MS</option><option>MG</option><option>PA</option><option>PB</option><option>PR</option><option>PE</option><option>PI</option><option>RJ</option><option>RN</option><option>RS</option><option>RO</option><option>RR</option><option>SC</option><option>SP</option><option>SE</option><option>TO</option></select></div>
+          <button id="supplierSearchBtn" class="primary" type="submit">Pesquisar fornecedores</button>
+        </form>
+        <div class="supplier-source">Fontes: <b>PNCP + Compras.gov.br</b>. O sistema cruza os resultados das fontes públicas e elimina fornecedores duplicados. Telefone, quando localizado, vem de dado cadastral público de CNPJ; caso contrário aparece “SEM TELEFONE PUBLICO”.</div>
+      </div>
+      <div id="supplierLoading" class="card hidden"><div class="notice">Busca inteligente em andamento: consultando PNCP e Compras.gov.br em paralelo, ampliando a amostra de licitações e fornecedores. A pesquisa continua mesmo se uma fonte estiver instável...</div></div>
+      <div id="supplierStats" class="stats hidden">
+        <div class="stat"><span>Fornecedores</span><strong id="supplierStatTotal">—</strong></div>
+        <div class="stat"><span>ME / EPP</span><strong id="supplierStatMe">—</strong></div>
+        <div class="stat"><span>Itens compatíveis</span><strong id="supplierStatItens">—</strong></div>
+        <div class="stat clickable-stat" id="supplierPurchasesStat" title="Clique para ver as compras analisadas"><span>Compras analisadas</span><strong id="supplierStatCompras">—</strong><small class="stat-action">Ver compras analisadas</small></div>
+      </div>
+      <div id="supplierPurchases" class="card hidden"></div>
+      <div id="supplierResults" class="card hidden">
+        <div class="card-head"><div><h3>Fornecedores encontrados</h3><span id="supplierResultHint" class="muted"></span></div><input id="supplierFilter" class="compact-input" placeholder="Filtrar fornecedor ou CNPJ"></div>
+        <div class="table-wrap"><table id="supplierTable"><thead><tr><th>Fornecedor</th><th>CNPJ</th><th>Telefone</th><th>Registros</th><th>ME/EPP</th><th>Último resultado</th><th>Preço médio</th><th></th></tr></thead><tbody><tr><td colspan="8" class="empty">Faça uma pesquisa.</td></tr></tbody></table></div>
+      </div>
+      <div id="supplierDetail" class="card hidden"></div>
+      <div id="supplierNotice" class="notice hidden"></div>
+    </section>
+
+
+    <section id="atasView" class="view hidden">
+      <div class="card supplier-hero">
+        <div class="card-head"><div><div class="eyebrow">ATA DE REGISTRO DE PREÇOS</div><h3>Atas vigentes disponíveis para adesão</h3></div></div>
+        <p class="muted">Pesquise um item e encontre atas vigentes com possibilidade de adesão. O sistema usa busca inteligente, consulta o detalhe oficial da ata e tenta enriquecer automaticamente o resultado com fornecedor, CNPJ e vigência.</p>
+        <form id="ataSearchForm" class="supplier-search">
+          <div class="grow"><label>Descritivo do item</label><input id="ataQuery" required minlength="3" placeholder="Ex.: papel A4, computador, material elétrico"></div>
+          <div><label>UF</label><select id="ataUf"><option value="">Todas</option><option>AC</option><option>AL</option><option>AP</option><option>AM</option><option>BA</option><option>CE</option><option>DF</option><option>ES</option><option>GO</option><option>MA</option><option>MT</option><option>MS</option><option>MG</option><option>PA</option><option>PB</option><option>PR</option><option>PE</option><option>PI</option><option>RJ</option><option>RN</option><option>RS</option><option>RO</option><option>RR</option><option>SC</option><option>SP</option><option>SE</option><option>TO</option></select></div>
+          <button id="ataSearchBtn" class="primary" type="submit">Pesquisar atas</button>
+        </form>
+        <div class="supplier-source">Fontes: <b>PNCP + Compras.gov.br</b>. A tela prioriza atas vigentes com indicação explícita de “Permite Adesão”.</div>
+      </div>
+      <div id="ataLoading" class="card hidden"><div class="notice">Busca inteligente em andamento: consultando atas vigentes em paralelo e enriquecendo os resultados com fornecedor, CNPJ, vigência e possibilidade de adesão...</div></div>
+      <div id="ataNotice" class="notice hidden"></div>
+      <div id="ataStats" class="stats hidden">
+        <div class="stat"><span>Atas encontradas</span><strong id="ataStatTotal">—</strong></div>
+        <div class="stat"><span>Com adesão informada</span><strong id="ataStatAdesao">—</strong></div>
+        <div class="stat"><span>Fontes</span><strong id="ataStatFontes">—</strong></div>
+      </div>
+      <div id="ataResults" class="card hidden">
+        <div class="card-head"><div><h3>Atas localizadas</h3><span id="ataResultHint" class="muted"></span></div><input id="ataFilter" class="compact-input" placeholder="Filtrar órgão, ata ou CNPJ"></div>
+        <div class="table-wrap"><table id="ataTable"><thead><tr><th>Ata</th><th>Objeto/item</th><th>Órgão</th><th>UF</th><th>Vigência</th><th>Adesão</th><th>Fornecedor</th><th></th></tr></thead><tbody><tr><td colspan="8" class="empty">Faça uma pesquisa.</td></tr></tbody></table></div>
+      </div>
+      <div id="ataDetail" class="card hidden ata-detail-card"></div>
+    </section>
+    <section id="painelView" class="view hidden">
+      <div class="card supplier-hero">
+        <div class="card-head"><div><div class="eyebrow">PAINEL DE ACESSOS</div><h3>Pessoas conectadas ao ST Cotações</h3></div><button class="ghost" id="loadPainel">Atualizar</button></div>
+        <p class="muted">Mostra o IP, o horário de login, a última atividade e se a sessão foi encerrada. Se a pessoa fechar o navegador sem clicar em Sair, a sessão passa para “INATIVA / SEM ATIVIDADE” após o período de heartbeat.</p>
+      </div>
+      <div id="painelLoading" class="card hidden"><div class="notice">Atualizando painel...</div></div>
+      <div id="painelStats" class="stats hidden">
+        <div class="stat"><span>Registros</span><strong id="painelStatTotal">—</strong></div>
+        <div class="stat"><span>Conectados</span><strong id="painelStatOnline">—</strong></div>
+        <div class="stat"><span>Já saíram</span><strong id="painelStatSaiu">—</strong></div>
+      </div>
+      <div id="painelNotice" class="notice hidden"></div>
+      <div id="painelResults" class="card hidden">
+        <div class="table-wrap"><table id="painelTable"><thead><tr><th>IP</th><th>Login</th><th>Última atividade</th><th>Saída</th><th>Status</th></tr></thead><tbody><tr><td colspan="5" class="empty">Nenhum acesso registrado.</td></tr></tbody></table></div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/app.js?v=8"></script>
+</body>
+</html>
