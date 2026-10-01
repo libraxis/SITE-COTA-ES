@@ -43,8 +43,10 @@
         <h2>Conectar à BP4 API</h2>
         <p>Informe seu <b>Token de Acesso API-Banco de Preços</b>. O token fica somente no servidor desta sessão e não é enviado ao navegador para chamadas posteriores.</p>
         <label>Token de acesso</label>
-        <input id="apiToken" type="password" placeholder="Cole seu token aqui" autocomplete="off">
-        <button id="loginBtn" class="primary full">Conectar</button>
+        <form id="loginForm" autocomplete="off">
+          <input id="apiToken" name="usuarioApiToken" type="password" placeholder="Cole seu token aqui" autocomplete="off" spellcheck="false">
+          <button id="loginBtn" type="submit" class="primary full">Conectar</button>
+        </form>
         <small class="muted">Nunca compartilhe seu token em chats, repositórios ou código público.</small>
       </div>
     </section>
@@ -140,6 +142,6 @@
     </section>
   </main>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=2"></script>
 </body>
 </html>

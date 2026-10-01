@@ -74,17 +74,27 @@ async function status(){
   }catch(e){ toast(e.message,true); }
 }
 
-async function login(){
-  const token=$("#apiToken").value.trim();
-  if(!token) return toast("Informe o token de acesso.",true);
-  $("#loginBtn").disabled=true;
+async function login(event){
+  if(event) event.preventDefault();
+  const input=$("#apiToken");
+  const token=String(input?.value || "").trim();
+  if(!token){
+    toast("Informe o token de acesso.",true);
+    input?.focus();
+    return;
+  }
+  const button=$("#loginBtn");
+  button.disabled=true;
   try{
-    await api("/api/auth/login",{method:"POST",body:JSON.stringify({usuarioApiToken:token})});
-    $("#apiToken").value="";
+    await api("/api/auth/login",{
+      method:"POST",
+      body:JSON.stringify({usuarioApiToken:token})
+    });
+    input.value="";
     toast("Conectado à BP4.");
     await status();
-  }catch(e){ toast(e.message,true); }
-  finally{$("#loginBtn").disabled=false;}
+  }catch(e){ toast(e.message || "Não foi possível autenticar.",true); }
+  finally{button.disabled=false;}
 }
 
 async function logout(){
@@ -222,7 +232,7 @@ $$(".nav").forEach(n=>n.addEventListener("click",async()=>{
   if(n.dataset.view==="cotacoes" && !cotacoes.length) await loadCotacoes();
 }));
 $$("[data-go]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.go)));
-$("#loginBtn").addEventListener("click",login);
+$("#loginForm").addEventListener("submit",login);
 $("#logoutBtn").addEventListener("click",logout);
 $("#refreshBtn").addEventListener("click",()=>currentView==="cotacoes"?loadCotacoes():loadDashboard());
 $("#loadCotacoes").addEventListener("click",loadCotacoes);
