@@ -1,15 +1,15 @@
-
 const express = require("express");
 const session = require("express-session");
 const cookieParser = require("cookie-parser");
-const crypto = require("crypto");
 const path = require("path");
 
 const app = express();
-// Render/Reverse proxy: permite que express-session reconheça HTTPS e envie o cookie seguro.
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
 const BP4_BASE = process.env.BP4_BASE_URL || "https://api.bancodeprecos.com.br";
+const PNCP_SEARCH_BASE = process.env.PNCP_SEARCH_URL || "https://pncp.gov.br/api/search";
+const PNCP_API_BASE = process.env.PNCP_API_URL || "https://pncp.gov.br/api/pncp/v1";
+const BRASIL_API_BASE = process.env.BRASIL_API_URL || "https://brasilapi.com.br/cnpj/v1";
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -29,39 +29,21 @@ app.use(session({
 
 app.use(express.static(path.join(__dirname, "public")));
 
-function cleanBase() {
-  return BP4_BASE.replace(/\/+$/, "");
-}
+function cleanBase(url) { return url.replace(/\/+$/, ""); }
+function reqToken(req) { return req.session && req.session.jwt; }
 
-async function bp4Fetch(endpoint, options = {}) {
-  if (!options.skipAuth) {
-    const token = reqToken(options.req);
-    if (!token) {
-      const err = new Error("Não autenticado");
-      err.status = 401;
-      throw err;
-    }
-  }
-  const url = cleanBase() + endpoint;
-  const headers = { "Accept": "application/json, text/plain, */*" };
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
-  if (!options.skipAuth) headers["Authorization"] = `Bearer ${reqToken(options.req)}`;
-
+async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
     method: options.method || "GET",
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined
+    headers: { "Accept": "application/json, text/plain, */*", ...(options.headers || {}) },
+    body: options.body,
+    signal: options.signal
   });
-
   const text = await response.text();
   let data = text;
   try { data = text ? JSON.parse(text) : null; } catch (_) {}
-
   if (!response.ok) {
-    const err = new Error(
-      (data && (data.message || data.mensagem || data.title)) ||
-      `BP4 respondeu HTTP ${response.status}`
-    );
+    const err = new Error((data && (data.message || data.mensagem || data.title)) || `HTTP ${response.status}`);
     err.status = response.status;
     err.data = data;
     throw err;
@@ -69,44 +51,39 @@ async function bp4Fetch(endpoint, options = {}) {
   return data;
 }
 
-function reqToken(req) {
-  return req.session && req.session.jwt;
+async function bp4Fetch(endpoint, options = {}) {
+  if (!options.skipAuth && !reqToken(options.req)) {
+    const err = new Error("Não autenticado"); err.status = 401; throw err;
+  }
+  const headers = { "Accept": "application/json, text/plain, */*" };
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (!options.skipAuth) headers["Authorization"] = `Bearer ${reqToken(options.req)}`;
+  return fetchJson(cleanBase(BP4_BASE) + endpoint, {
+    method: options.method || "GET",
+    headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined
+  });
 }
 
 async function ensureJwt(req) {
   if (!req.session.apiToken) {
-    const err = new Error("Informe o Token de Acesso API-Banco de Preços.");
-    err.status = 401;
-    throw err;
+    const err = new Error("Informe o Token de Acesso API-Banco de Preços."); err.status = 401; throw err;
   }
+  if (req.session.jwt && req.session.jwtExpiresAt && Date.now() < req.session.jwtExpiresAt - 60000) return req.session.jwt;
 
-  // If we have a recent JWT, reuse it. JWT lifetime documented by BP4 is 8h.
-  if (req.session.jwt && req.session.jwtExpiresAt && Date.now() < req.session.jwtExpiresAt - 60_000) {
-    return req.session.jwt;
-  }
-
-  const response = await fetch(cleanBase() + "/api/bp4/Auth/CreateUserToken", {
+  const response = await fetch(cleanBase(BP4_BASE) + "/api/bp4/Auth/CreateUserToken", {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Accept": "application/json, text/plain, */*"},
+    headers: { "Content-Type": "application/json", "Accept": "application/json, text/plain, */*" },
     body: JSON.stringify({ usuarioApiToken: req.session.apiToken })
   });
-
   const text = await response.text();
   let data = text;
   try { data = text ? JSON.parse(text) : null; } catch (_) {}
-
   if (!response.ok || !data || !data.token) {
-    let message = (data && (data.message || data.mensagem || data.title)) ||
-      `Falha na autenticação BP4 (HTTP ${response.status})`;
-    if (response.status === 401) {
-      message = "O Token de Acesso API-Banco de Preços foi rejeitado pela BP4. Confira o token em Configurações > Preferências > Token de Acesso API-Banco de Preços.";
-    }
-    const err = new Error(message);
-    err.status = response.status || 401;
-    err.data = data;
-    throw err;
+    let message = (data && (data.message || data.mensagem || data.title)) || `Falha na autenticação BP4 (HTTP ${response.status})`;
+    if (response.status === 401) message = "O Token de Acesso API-Banco de Preços foi rejeitado pela BP4. Confira o token em Configurações > Preferências > Token de Acesso API-Banco de Preços.";
+    const err = new Error(message); err.status = response.status || 401; err.data = data; throw err;
   }
-
   req.session.jwt = data.token;
   req.session.jwtExpiresAt = Date.now() + 8 * 60 * 60 * 1000;
   return data.token;
@@ -120,10 +97,170 @@ async function authenticatedCall(req, endpoint, options = {}) {
 function asyncRoute(handler) {
   return (req, res) => Promise.resolve(handler(req, res)).catch(err => {
     console.error(err);
-    res.status(err.status || 500).json({
-      error: err.message || "Erro interno",
-      details: err.data ?? null
-    });
+    res.status(err.status || 500).json({ error: err.message || "Erro interno", details: err.data ?? null });
+  });
+}
+
+function onlyDigits(value) { return String(value || "").replace(/\D/g, ""); }
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+const STOP_WORDS = new Set([
+  "a","o","as","os","de","da","do","das","dos","e","em","para","por","com","sem","um","uma","uns","umas",
+  "na","no","nas","nos","ao","aos","que","se","servico","servicos","material","materiais","fornecimento","fornecer"
+]);
+function queryTokens(query) {
+  return normalizeText(query).split(/\s+/).filter(t => t.length >= 2 && !STOP_WORDS.has(t));
+}
+function descriptionMatches(description, query) {
+  const text = normalizeText(description);
+  const phrase = normalizeText(query);
+  if (!text) return false;
+  if (phrase && text.includes(phrase)) return true;
+  const tokens = queryTokens(query);
+  if (!tokens.length) return false;
+  const hits = tokens.filter(t => text.includes(t)).length;
+  return hits / tokens.length >= 0.6;
+}
+
+function parsePurchaseUrl(itemUrl) {
+  const match = String(itemUrl || "").match(/\/compras\/(\d{8,14})\/(\d{4})\/(\d+)/);
+  if (!match) return null;
+  return { orgao: match[1], ano: Number(match[2]), compra: Number(match[3]) };
+}
+
+async function pncpSearch(q, { uf, pagina = 1, tamPagina = 20 } = {}) {
+  const url = new URL(PNCP_SEARCH_BASE + "/");
+  url.searchParams.set("q", q);
+  url.searchParams.set("tipos_documento", "edital");
+  url.searchParams.set("status", "encerradas");
+  url.searchParams.set("ordenacao", "-data");
+  url.searchParams.set("pagina", String(pagina));
+  url.searchParams.set("tam_pagina", String(Math.min(Math.max(tamPagina, 1), 50)));
+  if (uf) url.searchParams.set("uf", uf);
+  return fetchJson(url.toString());
+}
+
+async function pncpGetItems(purchase, pagina = 1) {
+  const url = `${cleanBase(PNCP_API_BASE)}/orgaos/${purchase.orgao}/compras/${purchase.ano}/${purchase.compra}/itens?pagina=${pagina}&tamanhoPagina=50`;
+  return fetchJson(url);
+}
+
+async function pncpGetResults(purchase, numeroItem) {
+  const url = `${cleanBase(PNCP_API_BASE)}/orgaos/${purchase.orgao}/compras/${purchase.ano}/${purchase.compra}/itens/${encodeURIComponent(numeroItem)}/resultados`;
+  return fetchJson(url);
+}
+
+async function enrichPhone(cnpj) {
+  const digits = onlyDigits(cnpj);
+  if (digits.length !== 14) return null;
+  try {
+    const data = await fetchJson(`${cleanBase(BRASIL_API_BASE)}/${digits}`);
+    return data?.ddd_telefone_1 || data?.ddd_telefone_2 || data?.telefone || null;
+  } catch (_) { return null; }
+}
+
+async function supplierMap(req, res) {
+  await ensureJwt(req);
+  const q = String(req.query.q || "").trim();
+  if (q.length < 3) return res.status(400).json({ error: "Informe pelo menos 3 caracteres para pesquisar o item." });
+  const uf = String(req.query.uf || "").trim().toUpperCase();
+  const maxCompras = Math.min(Math.max(Number(req.query.maxCompras || 8), 1), 12);
+
+  const searchData = await pncpSearch(q, { uf, pagina: 1, tamPagina: 20 });
+  const searchItems = Array.isArray(searchData?.items) ? searchData.items : [];
+  const suppliers = new Map();
+  const matchedItems = [];
+  const purchasesSeen = new Set();
+  let purchasesProcessed = 0;
+
+  for (const result of searchItems) {
+    if (purchasesProcessed >= maxCompras) break;
+    const purchase = parsePurchaseUrl(result?.item_url);
+    if (!purchase) continue;
+    const key = `${purchase.orgao}-${purchase.ano}-${purchase.compra}`;
+    if (purchasesSeen.has(key)) continue;
+    purchasesSeen.add(key);
+
+    let itemPage = 1;
+    let pages = 0;
+    let stopPurchase = false;
+    while (pages < 3 && !stopPurchase) {
+      let items;
+      try { items = await pncpGetItems(purchase, itemPage); } catch (err) { console.warn("PNCP itens", key, err.message); break; }
+      if (!Array.isArray(items) || !items.length) break;
+      pages++;
+      for (const item of items) {
+        if (!descriptionMatches(item?.descricao, q)) continue;
+        const numeroItem = item?.numeroItem ?? item?.numero;
+        if (numeroItem == null || item?.temResultado === false) continue;
+        let resultados = [];
+        try { resultados = await pncpGetResults(purchase, numeroItem); } catch (err) { console.warn("PNCP resultados", key, numeroItem, err.message); continue; }
+        if (!Array.isArray(resultados)) continue;
+        for (const r of resultados) {
+          const cnpj = onlyDigits(r?.niFornecedor || r?.cnpjFornecedor || "");
+          const nome = r?.nomeRazaoSocialFornecedor || r?.fornecedorNome || "Fornecedor não informado";
+          if (!cnpj && !nome) continue;
+          const supplierKey = cnpj || normalizeText(nome);
+          let s = suppliers.get(supplierKey);
+          if (!s) {
+            s = { nome, cnpj, registros: 0, vencedores: 0, meEpp: false, ultimaData: null, precoMedio: null, _sum: 0, _priceCount: 0, compras: [] };
+            suppliers.set(supplierKey, s);
+          }
+          s.registros += 1;
+          s.vencedores += 1;
+          s.meEpp = s.meEpp || [1,2].includes(Number(r?.porteFornecedorId));
+          const data = r?.dataResultado || null;
+          if (data && (!s.ultimaData || new Date(data) > new Date(s.ultimaData))) s.ultimaData = data;
+          const price = Number(r?.valorUnitarioHomologado);
+          if (Number.isFinite(price)) { s._sum += price; s._priceCount++; }
+          if (s.compras.length < 5) s.compras.push({
+            descricao: item.descricao,
+            orgao: result?.orgao_nome || purchase.orgao,
+            uf: result?.uf || result?.ufSigla || uf || "",
+            data,
+            preco: Number.isFinite(price) ? price : null,
+            link: `https://pncp.gov.br/app/editais/${purchase.orgao}/${purchase.ano}/${purchase.compra}`
+          });
+        }
+        if (resultados.length) matchedItems.push({ descricao: item.descricao, compra: key, numeroItem, quantidade: item.quantidade, unidade: item.unidadeMedida, resultados: resultados.length });
+      }
+      if (items.length < 50) stopPurchase = true;
+      itemPage++;
+    }
+    purchasesProcessed++;
+    await new Promise(r => setTimeout(r, 350));
+  }
+
+  const list = [...suppliers.values()].map(s => {
+    s.precoMedio = s._priceCount ? s._sum / s._priceCount : null;
+    delete s._sum; delete s._priceCount;
+    return s;
+  });
+
+  // Enriquecimento telefônico limitado para evitar excesso de chamadas externas.
+  for (const s of list.slice(0, 15)) {
+    s.telefone = await enrichPhone(s.cnpj);
+    if (!s.telefone) s.telefone = "SEM TELEFONE PUBLICO";
+  }
+  for (const s of list.slice(15)) s.telefone = "SEM TELEFONE PUBLICO";
+
+  list.sort((a,b) => b.registros - a.registros || String(a.nome).localeCompare(String(b.nome), "pt-BR"));
+  res.json({
+    fonte: "PNCP + dados cadastrais públicos para telefone",
+    aviso: "A busca de fornecedores é uma implementação própria baseada em dados públicos do PNCP; não é o endpoint interno do Mapa de Fornecedores do Banco de Preços.",
+    consulta: q,
+    uf: uf || "TODAS",
+    comprasAnalisadas: purchasesProcessed,
+    totalResultadosBusca: Number(searchData?.total || searchItems.length || 0),
+    itensCorrespondentes: matchedItems.length,
+    totalFornecedores: list.length,
+    totalMeEpp: list.filter(s => s.meEpp).length,
+    fornecedores: list,
+    itens: matchedItems.slice(0, 50)
   });
 }
 
@@ -131,236 +268,35 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
   const body = req.body || {};
   const usuarioApiToken = String(body.usuarioApiToken ?? body.token ?? "").trim();
   if (!usuarioApiToken) return res.status(400).json({ error: "Informe o usuarioApiToken." });
-
   req.session.apiToken = usuarioApiToken;
   req.session.jwt = null;
   req.session.jwtExpiresAt = 0;
-
   try {
     await ensureJwt(req);
     await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
     res.json({ ok: true, message: "Autenticado com sucesso. JWT válido por até 8 horas." });
   } catch (err) {
-    req.session.apiToken = null;
-    req.session.jwt = null;
-    req.session.jwtExpiresAt = 0;
+    req.session.apiToken = null; req.session.jwt = null; req.session.jwtExpiresAt = 0;
     await new Promise(resolve => req.session.save(() => resolve()));
     throw err;
   }
 }));
 
-app.post("/api/auth/logout", asyncRoute(async (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
-}));
-
+app.post("/api/auth/logout", asyncRoute(async (req, res) => { req.session.destroy(() => res.json({ ok: true })); }));
 app.get("/api/auth/status", asyncRoute(async (req, res) => {
   if (req.session.apiToken) await ensureJwt(req);
-  res.json({
-    authenticated: !!req.session.apiToken && !!req.session.jwt,
-    jwtValidUntil: req.session.jwtExpiresAt || null
-  });
+  res.json({ authenticated: !!req.session.apiToken && !!req.session.jwt, jwtValidUntil: req.session.jwtExpiresAt || null });
 }));
 
-app.get("/api/cotacoes", asyncRoute(async (req, res) => {
-  res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/GetCotacoes"));
-}));
+app.get("/api/cotacoes", asyncRoute(async (req, res) => res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/GetCotacoes"))));
+app.get("/api/cotacoes/completa", asyncRoute(async (req, res) => { const id = Number(req.query.IdCotacao); if (!Number.isInteger(id)) return res.status(400).json({ error: "IdCotacao é obrigatório." }); res.json(await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacaoCompleta?IdCotacao=${encodeURIComponent(id)}`)); }));
+app.get("/api/cotacoes/lotes", asyncRoute(async (req, res) => { const id = Number(req.query.IdCotacao); if (!Number.isInteger(id)) return res.status(400).json({ error: "IdCotacao é obrigatório." }); res.json(await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacoesLotes?IdCotacao=${encodeURIComponent(id)}`)); }));
+app.get("/api/cotacoes/itens", asyncRoute(async (req, res) => { const id = Number(req.query.IdCotacao); if (!Number.isInteger(id)) return res.status(400).json({ error: "IdCotacao é obrigatório." }); res.json(await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacoesItens?IdCotacao=${encodeURIComponent(id)}`)); }));
+app.get("/api/cotacoes/precos", asyncRoute(async (req, res) => { const id = Number(req.query.IdItem); if (!Number.isInteger(id)) return res.status(400).json({ error: "IdItem é obrigatório." }); res.json(await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacoesPrecosItens?IdItem=${encodeURIComponent(id)}`)); }));
+app.post("/api/cotacoes", asyncRoute(async (req, res) => res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/CriarCotacoes", { method: "POST", body: req.body || {} }))));
+app.post("/api/cotacoes/itens", asyncRoute(async (req, res) => res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/CriarItens", { method: "POST", body: req.body || {} }))));
+app.get("/api/catalogos/unidades", asyncRoute(async (req, res) => res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/GetTodasUnidadeMedida"))));
+app.get("/api/catalogos/cidades", asyncRoute(async (req, res) => res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/GetTodasCidades"))));
+app.get("/api/fornecedores/mapa", asyncRoute(supplierMap));
 
-app.get("/api/cotacoes/completa", asyncRoute(async (req, res) => {
-  const id = Number(req.query.IdCotacao);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: "IdCotacao é obrigatório." });
-  res.json(await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacaoCompleta?IdCotacao=${encodeURIComponent(id)}`));
-}));
-
-app.get("/api/cotacoes/lotes", asyncRoute(async (req, res) => {
-  const id = Number(req.query.IdCotacao);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: "IdCotacao é obrigatório." });
-  res.json(await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacoesLotes?IdCotacao=${encodeURIComponent(id)}`));
-}));
-
-app.get("/api/cotacoes/itens", asyncRoute(async (req, res) => {
-  const id = Number(req.query.IdCotacao);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: "IdCotacao é obrigatório." });
-  res.json(await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacoesItens?IdCotacao=${encodeURIComponent(id)}`));
-}));
-
-app.get("/api/cotacoes/precos", asyncRoute(async (req, res) => {
-  const id = Number(req.query.IdItem);
-  if (!Number.isInteger(id)) return res.status(400).json({ error: "IdItem é obrigatório." });
-  res.json(await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacoesPrecosItens?IdItem=${encodeURIComponent(id)}`));
-}));
-
-app.post("/api/cotacoes", asyncRoute(async (req, res) => {
-  res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/CriarCotacoes", {
-    method: "POST",
-    body: req.body || {}
-  }));
-}));
-
-app.post("/api/cotacoes/itens", asyncRoute(async (req, res) => {
-  res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/CriarItens", {
-    method: "POST",
-    body: req.body || {}
-  }));
-}));
-
-
-
-function normalizeSearchText(value) {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function normalizeCnpj(value) {
-  return String(value ?? "").replace(/\D/g, "");
-}
-
-function formatCnpj(value) {
-  const digits = normalizeCnpj(value);
-  if (digits.length !== 14) return String(value ?? "");
-  return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-}
-
-function extractArray(data) {
-  if (Array.isArray(data)) return data;
-  if (!data || typeof data !== "object") return [];
-  for (const key of ["data", "dados", "result", "resultado", "cotacoes", "itens", "precos", "items"]) {
-    if (Array.isArray(data[key])) return data[key];
-  }
-  return Object.values(data).find(Array.isArray) || [];
-}
-
-async function lookupPublicSupplier(cnpj) {
-  const digits = normalizeCnpj(cnpj);
-  if (digits.length !== 14) return { cnpj: formatCnpj(cnpj), telefone: "SEM TELEFONE PUBLICO" };
-
-  try {
-    const response = await fetch(`https://brasilapi.com.br/cnpj/v1/${digits}`, {
-      headers: { "Accept": "application/json" }
-    });
-    if (!response.ok) return { cnpj: formatCnpj(digits), telefone: "SEM TELEFONE PUBLICO" };
-    const data = await response.json();
-    const phones = [data.ddd_telefone_1, data.ddd_telefone_2]
-      .map(v => String(v || "").replace(/\D/g, ""))
-      .filter(Boolean);
-    return {
-      cnpj: formatCnpj(digits),
-      telefone: phones.length ? phones.join(" / ") : "SEM TELEFONE PUBLICO",
-      razaoSocial: data.razao_social || data.nome_fantasia || "",
-      nomeFantasia: data.nome_fantasia || ""
-    };
-  } catch (_) {
-    return { cnpj: formatCnpj(digits), telefone: "SEM TELEFONE PUBLICO" };
-  }
-}
-
-app.get("/api/fornecedores", asyncRoute(async (req, res) => {
-  const query = String(req.query.descricao || "").trim();
-  if (query.length < 2) return res.status(400).json({ error: "Informe pelo menos 2 caracteres do descritivo do item." });
-
-  const normalizedQuery = normalizeSearchText(query);
-  const terms = normalizedQuery.split(/\s+/).filter(Boolean);
-  const cotacoesData = await authenticatedCall(req, "/api/bp4/Cotacoes/GetCotacoes");
-  const cotacoes = extractArray(cotacoesData);
-
-  // A BP4 API disponibilizada neste projeto não possui um endpoint de busca global de itens.
-  // Portanto, a pesquisa percorre os itens das cotações visíveis à conta autenticada e,
-  // para os itens compatíveis, consulta os preços/fornecedores retornados pela BP4.
-  const matches = [];
-  for (const cotacao of cotacoes.slice(0, 100)) {
-    const id = Number(cotacao.idCotacao ?? cotacao.IdCotacao ?? cotacao.id);
-    if (!Number.isInteger(id)) continue;
-    let itens = [];
-    try {
-      const itensData = await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacoesItens?IdCotacao=${encodeURIComponent(id)}`);
-      itens = extractArray(itensData);
-    } catch (_) {
-      continue;
-    }
-    for (const item of itens) {
-      const text = normalizeSearchText(`${item.nomeItem || ""} ${item.descricao || ""}`);
-      if (terms.every(term => text.includes(term))) {
-        matches.push({
-          idCotacao: id,
-          idItem: Number(item.idCotacaoItem ?? item.IdCotacaoItem ?? item.idItem ?? item.id),
-          nomeItem: item.nomeItem || "",
-          descricao: item.descricao || ""
-        });
-      }
-    }
-  }
-
-  const uniqueMatches = [];
-  const seenItems = new Set();
-  for (const match of matches) {
-    if (!Number.isInteger(match.idItem) || seenItems.has(match.idItem)) continue;
-    seenItems.add(match.idItem);
-    uniqueMatches.push(match);
-  }
-
-  const fornecedores = new Map();
-  for (const match of uniqueMatches.slice(0, 50)) {
-    let precos = [];
-    try {
-      const precosData = await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacoesPrecosItens?IdItem=${encodeURIComponent(match.idItem)}`);
-      precos = extractArray(precosData);
-    } catch (_) {
-      continue;
-    }
-    for (const preco of precos) {
-      const cnpj = normalizeCnpj(preco.cnpjFornecedor);
-      if (cnpj.length !== 14) continue;
-      const current = fornecedores.get(cnpj) || {
-        cnpj,
-        ocorrencias: 0,
-        itens: new Set(),
-        fontes: new Set()
-      };
-      current.ocorrencias += 1;
-      current.itens.add(match.idItem);
-      if (preco.fontePesquisa) current.fontes.add(preco.fontePesquisa);
-      fornecedores.set(cnpj, current);
-    }
-  }
-
-  const base = [...fornecedores.values()]
-    .sort((a, b) => b.ocorrencias - a.ocorrencias)
-    .slice(0, 100);
-
-  // Consulta telefones públicos somente para os CNPJs encontrados na BP4, sem armazená-los.
-  const enriched = [];
-  for (const supplier of base) {
-    const publicData = await lookupPublicSupplier(supplier.cnpj);
-    enriched.push({
-      cnpj: publicData.cnpj,
-      razaoSocial: publicData.razaoSocial || "",
-      nomeFantasia: publicData.nomeFantasia || "",
-      telefone: publicData.telefone,
-      ocorrencias: supplier.ocorrencias,
-      quantidadeItens: supplier.itens.size,
-      fontes: [...supplier.fontes].join(", ") || "—"
-    });
-  }
-
-  res.json({
-    consulta: query,
-    itensEncontrados: uniqueMatches.length,
-    fornecedores: enriched,
-    observacao: "A pesquisa usa os itens das cotações visíveis à conta autenticada e os fornecedores presentes nos preços retornados pela BP4. O telefone, quando disponível, é consultado em cadastro público por CNPJ."
-  });
-}));
-
-app.get("/api/catalogos/unidades", asyncRoute(async (req, res) => {
-  res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/GetTodasUnidadeMedida"));
-}));
-
-app.get("/api/catalogos/cidades", asyncRoute(async (req, res) => {
-  res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/GetTodasCidades"));
-}));
-
-app.listen(PORT, () => {
-  console.log(`BP4 Site rodando em http://localhost:${PORT}`);
-});
+app.listen(PORT, () => console.log(`BP4 Site rodando em http://localhost:${PORT}`));
