@@ -35,7 +35,7 @@ function showView(view){
   $$(".view").forEach(v=>v.classList.add("hidden"));
   $(`#${view}View`).classList.remove("hidden");
   $$(".nav").forEach(n=>n.classList.toggle("active", n.dataset.view===view));
-  const titles={dashboard:"Visão geral",cotacoes:"Cotações",criar:"Criar cotação",catalogos:"Catálogos",fornecedores:"FORNECEDORES"};
+  const titles={dashboard:"Visão geral",cotacoes:"Cotações",criar:"Criar cotação",catalogos:"Catálogos",fornecedores:"Fornecedores"};
   $("#pageTitle").textContent=titles[view]||"BP4";
 }
 
@@ -234,46 +234,6 @@ async function createItem(e){
   }catch(err){toast(err.message,true);}
 }
 
-
-
-async function searchFornecedores(e){
-  e.preventDefault();
-  const input=$("#fornecedorSearch");
-  const query=String(input?.value || "").trim();
-  if(query.length < 2){ toast("Informe pelo menos 2 caracteres do descritivo.", true); input?.focus(); return; }
-  const button=$("#buscarFornecedores");
-  const statusBox=$("#fornecedorStatus");
-  const result=$("#fornecedorResult");
-  const tbody=$("#fornecedoresTable tbody");
-  button.disabled=true;
-  result.classList.remove("hidden");
-  statusBox.classList.remove("hidden");
-  statusBox.textContent="Consultando itens e fornecedores na BP4. Isso pode levar alguns segundos...";
-  tbody.innerHTML='<tr><td colspan="6" class="empty">Pesquisando...</td></tr>';
-  try{
-    const data=await api(`/api/fornecedores?descricao=${encodeURIComponent(query)}`);
-    const rows=data?.fornecedores || [];
-    $("#fornecedorCount").textContent=rows.length;
-    if(!rows.length){
-      tbody.innerHTML='<tr><td colspan="6" class="empty">Nenhum fornecedor encontrado para esse descritivo nas cotações visíveis à sua conta.</td></tr>';
-    }else{
-      tbody.innerHTML=rows.map(f=>`<tr>
-        <td><strong>${esc(f.nomeFantasia || f.razaoSocial || "Fornecedor sem nome público")}</strong>${f.razaoSocial && f.nomeFantasia && f.razaoSocial!==f.nomeFantasia?`<br><small class="muted">${esc(f.razaoSocial)}</small>`:""}</td>
-        <td>${esc(f.cnpj)}</td>
-        <td>${esc(f.telefone || "SEM TELEFONE PUBLICO")}</td>
-        <td>${esc(f.ocorrencias)}</td>
-        <td>${esc(f.quantidadeItens)}</td>
-        <td>${esc(f.fontes)}</td>
-      </tr>`).join("");
-    }
-    statusBox.textContent=`Busca concluída: ${data?.itensEncontrados || 0} item(ns) compatível(is) e ${rows.length} fornecedor(es).`;
-  }catch(err){
-    tbody.innerHTML=`<tr><td colspan="6" class="empty">${esc(err.message)}</td></tr>`;
-    statusBox.textContent="Não foi possível concluir a pesquisa.";
-    toast(err.message,true);
-  }finally{button.disabled=false;}
-}
-
 async function loadUnits(){
   const data=await api("/api/catalogos/unidades");
   const arr=normalizeArray(data);
@@ -283,6 +243,51 @@ async function loadCities(){
   const data=await api("/api/catalogos/cidades");
   const arr=normalizeArray(data);
   $("#citiesTable tbody").innerHTML=arr.map(x=>`<tr><td>${esc(x.idCidade??x.id??x.Id)}</td><td>${esc(x.nomeCidade??x.nome??x.Nome)}</td><td>${esc(x.uf??x.siglaUf??x.estado??"")}</td></tr>`).join("") || '<tr><td colspan="3" class="empty">Nenhum registro.</td></tr>';
+}
+
+let supplierData=[];
+function fmtMoney(v){ return v==null || !Number.isFinite(Number(v)) ? "—" : Number(v).toLocaleString("pt-BR",{style:"currency",currency:"BRL"}); }
+function fmtCnpj(v){ const d=String(v||"").replace(/\D/g,""); return d.length===14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,'$1.$2.$3/$4-$5') : (v||"—"); }
+function fmtPhone(v){ return v && v!=="SEM TELEFONE PUBLICO" ? String(v) : "SEM TELEFONE PUBLICO"; }
+function renderSupplierRows(){
+  const q=String($("#supplierFilter").value||"").toLowerCase();
+  const rows=supplierData.filter(s=>`${s.nome||""} ${s.cnpj||""}`.toLowerCase().includes(q));
+  $("#supplierTable tbody").innerHTML=rows.length?rows.map((s,i)=>`<tr>
+    <td><span class="supplier-name">${esc(s.nome)}</span></td>
+    <td><span class="supplier-cnpj">${esc(fmtCnpj(s.cnpj))}</span></td>
+    <td class="supplier-phone">${esc(fmtPhone(s.telefone))}</td>
+    <td>${esc(s.registros)}</td>
+    <td>${s.meEpp?'<span class="badge">ME/EPP</span>':'—'}</td>
+    <td>${esc(fmtDate(s.ultimaData))}</td>
+    <td>${esc(fmtMoney(s.precoMedio))}</td>
+    <td><button class="link-btn" onclick="openSupplierDetail(${i})">Detalhes</button></td>
+  </tr>`).join(""):'<tr><td colspan="8" class="empty">Nenhum fornecedor encontrado.</td></tr>';
+}
+function openSupplierDetail(index){
+  const q=String($("#supplierFilter").value||"").toLowerCase();
+  const rows=supplierData.filter(s=>`${s.nome||""} ${s.cnpj||""}`.toLowerCase().includes(q));
+  const s=rows[index]; if(!s) return;
+  const compras=(s.compras||[]).map(c=>`<tr><td>${esc(c.descricao)}</td><td>${esc(c.orgao)}</td><td>${esc(c.uf||"—")}</td><td>${esc(fmtDate(c.data))}</td><td>${esc(fmtMoney(c.preco))}</td><td>${c.link?`<a href="${esc(c.link)}" target="_blank" rel="noopener">Abrir PNCP</a>`:'—'}</td></tr>`).join("");
+  const box=$("#supplierDetail"); box.classList.remove("hidden"); box.innerHTML=`<div class="card-head"><div><h3>${esc(s.nome)}</h3><span class="muted">${esc(fmtCnpj(s.cnpj))}</span></div><button class="ghost" onclick="$('#supplierDetail').classList.add('hidden')">Fechar</button></div>
+    <div class="supplier-detail-grid"><div class="pill"><small>Telefone</small><strong>${esc(fmtPhone(s.telefone))}</strong></div><div class="pill"><small>Registros</small><strong>${esc(s.registros)}</strong></div><div class="pill"><small>ME / EPP</small><strong>${s.meEpp?'Sim':'Não'}</strong></div><div class="pill"><small>Preço médio</small><strong>${esc(fmtMoney(s.precoMedio))}</strong></div></div>
+    <h4>Ocorrências recentes encontradas</h4><div class="table-wrap"><table><thead><tr><th>Item</th><th>Órgão</th><th>UF</th><th>Data</th><th>Preço</th><th></th></tr></thead><tbody>${compras||'<tr><td colspan="6" class="empty">Sem detalhes.</td></tr>'}</tbody></table></div>`;
+  box.scrollIntoView({behavior:"smooth",block:"start"});
+}
+async function searchSuppliers(e){
+  e.preventDefault();
+  const query=$("#supplierQuery").value.trim(); const uf=$("#supplierUf").value;
+  if(query.length<3) return toast("Informe pelo menos 3 caracteres.",true);
+  $("#supplierLoading").classList.remove("hidden"); $("#supplierStats").classList.add("hidden"); $("#supplierResults").classList.add("hidden"); $("#supplierDetail").classList.add("hidden"); $("#supplierNotice").classList.add("hidden");
+  const btn=$("#supplierSearchBtn"); btn.disabled=true;
+  try{
+    const data=await api(`/api/fornecedores/mapa?q=${encodeURIComponent(query)}&uf=${encodeURIComponent(uf)}`);
+    supplierData=data.fornecedores||[];
+    $("#supplierStatTotal").textContent=data.totalFornecedores??supplierData.length; $("#supplierStatMe").textContent=data.totalMeEpp??0; $("#supplierStatItens").textContent=data.itensCorrespondentes??0; $("#supplierStatCompras").textContent=data.comprasAnalisadas??0;
+    $("#supplierStats").classList.remove("hidden"); $("#supplierResults").classList.remove("hidden"); $("#supplierResultHint").textContent=`${supplierData.length} fornecedor(es) encontrados para “${query}”`;
+    renderSupplierRows();
+    if(!supplierData.length){ $("#supplierNotice").textContent="Nenhum fornecedor com resultado homologado foi encontrado nos registros analisados. Tente um termo mais específico ou outra UF."; $("#supplierNotice").classList.remove("hidden"); }
+  }catch(err){ toast(err.message,true); $("#supplierNotice").textContent=err.message; $("#supplierNotice").classList.remove("hidden"); }
+  finally{ $("#supplierLoading").classList.add("hidden"); btn.disabled=false; }
 }
 
 $$(".nav").forEach(n=>n.addEventListener("click",async()=>{
@@ -298,9 +303,10 @@ $("#loadCotacoes").addEventListener("click",loadCotacoes);
 $("#cotacaoSearch").addEventListener("input",renderCotacoes);
 $("#createCotacaoForm").addEventListener("submit",createCotacao);
 $("#createItemForm").addEventListener("submit",createItem);
-$("#fornecedorSearchForm").addEventListener("submit",searchFornecedores);
 $("#loadUnits").addEventListener("click",()=>loadUnits().catch(e=>toast(e.message,true)));
 $("#loadCities").addEventListener("click",()=>loadCities().catch(e=>toast(e.message,true)));
+$("#supplierSearchForm").addEventListener("submit",searchSuppliers);
+$("#supplierFilter").addEventListener("input",renderSupplierRows);
 $("#quickUnits").addEventListener("click",()=>{showView("catalogos");loadUnits().catch(e=>toast(e.message,true));});
 $("#quickCities").addEventListener("click",()=>{showView("catalogos");loadCities().catch(e=>toast(e.message,true));});
 
