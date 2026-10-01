@@ -1,6 +1,7 @@
 
 let cotacoes = [];
 let currentView = "dashboard";
+let authenticated = false;
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -29,6 +30,7 @@ async function api(url, options={}){
 }
 
 function showView(view){
+  if(!authenticated) return;
   currentView = view;
   $$(".view").forEach(v=>v.classList.add("hidden"));
   $(`#${view}View`).classList.remove("hidden");
@@ -59,19 +61,31 @@ function esc(v){
 async function status(){
   try{
     const s=await api("/api/auth/status");
-    if(s.authenticated){
+    authenticated = !!s.authenticated;
+    document.body.classList.toggle("locked", !authenticated);
+    if(authenticated){
       $("#authBadge").className="auth-badge online";
       $("#authBadge").textContent="Conectado";
       $("#loginView").classList.add("hidden");
-      showView(currentView);
+      showView(currentView || "dashboard");
       loadDashboard();
     } else {
+      currentView = "dashboard";
       $("#authBadge").className="auth-badge offline";
       $("#authBadge").textContent="Desconectado";
+      $("#pageTitle").textContent="Acesso restrito";
       $("#loginView").classList.remove("hidden");
       $$(".view:not(#loginView)").forEach(v=>v.classList.add("hidden"));
     }
-  }catch(e){ toast(e.message,true); }
+  }catch(e){
+    authenticated = false;
+    document.body.classList.add("locked");
+    $("#authBadge").className="auth-badge offline";
+    $("#authBadge").textContent="Desconectado";
+    $("#loginView").classList.remove("hidden");
+    $$(".view:not(#loginView)").forEach(v=>v.classList.add("hidden"));
+    toast(e.message || "Sessão não autenticada.",true);
+  }
 }
 
 async function login(event){
@@ -92,6 +106,8 @@ async function login(event){
     });
     input.value="";
     toast("Conectado à BP4.");
+    authenticated = true;
+    document.body.classList.remove("locked");
     await status();
   }catch(e){ toast(e.message || "Não foi possível autenticar.",true); }
   finally{button.disabled=false;}
@@ -99,6 +115,8 @@ async function login(event){
 
 async function logout(){
   await api("/api/auth/logout",{method:"POST"}).catch(()=>{});
+  authenticated = false;
+  document.body.classList.add("locked");
   toast("Sessão encerrada.");
   await status();
 }
@@ -228,10 +246,11 @@ async function loadCities(){
 }
 
 $$(".nav").forEach(n=>n.addEventListener("click",async()=>{
+  if(!authenticated) return;
   showView(n.dataset.view);
   if(n.dataset.view==="cotacoes" && !cotacoes.length) await loadCotacoes();
 }));
-$$("[data-go]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.go)));
+$$("[data-go]").forEach(b=>b.addEventListener("click",()=>{ if(authenticated) showView(b.dataset.go); }));
 $("#loginForm").addEventListener("submit",login);
 $("#logoutBtn").addEventListener("click",logout);
 $("#refreshBtn").addEventListener("click",()=>currentView==="cotacoes"?loadCotacoes():loadDashboard());
