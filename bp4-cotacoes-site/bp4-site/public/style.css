@@ -17,3 +17,8 @@ body.locked .login-view { min-height:calc(100vh - 90px); }
 .ata-detail-card{margin-top:18px}.ata-validation{display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:9px;background:#f3f6fb;color:#526074;font-size:13px;margin:12px 0 16px}.ata-detail-actions{display:flex;gap:10px;margin-top:18px}.badge-ok{background:#e8f7ee;color:#18794e}
 
 .danger-btn{border:1px solid #e1a5a5;background:#fff5f5;color:#a21d1d;border-radius:8px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer}.danger-btn:hover{background:#ffe7e7;border-color:#cf7777}.danger-btn:disabled{opacity:.55;cursor:wait}
+
+.admin-password-row{display:grid;grid-template-columns:minmax(180px,1fr) minmax(260px,1.5fr);gap:12px;align-items:end;margin-top:14px}
+.admin-password-field{min-width:0}
+.admin-password-help{display:block;padding:10px 12px;border:1px solid #dbe4ef;border-radius:10px;background:#f7f9fc;line-height:1.45;color:#5f6f82}
+@media (max-width:700px){.admin-password-row{grid-template-columns:1fr}.admin-password-help{margin-top:0}}
