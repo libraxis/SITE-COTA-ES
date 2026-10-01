@@ -139,9 +139,9 @@
           <div><label>UF</label><select id="supplierUf"><option value="">Todas</option><option>AC</option><option>AL</option><option>AP</option><option>AM</option><option>BA</option><option>CE</option><option>DF</option><option>ES</option><option>GO</option><option>MA</option><option>MT</option><option>MS</option><option>MG</option><option>PA</option><option>PB</option><option>PR</option><option>PE</option><option>PI</option><option>RJ</option><option>RN</option><option>RS</option><option>RO</option><option>RR</option><option>SC</option><option>SP</option><option>SE</option><option>TO</option></select></div>
           <button id="supplierSearchBtn" class="primary" type="submit">Pesquisar fornecedores</button>
         </form>
-        <div class="supplier-source">Fonte: <b>PNCP</b>. Telefone, quando localizado, vem de dado cadastral público de CNPJ; caso contrário aparece “SEM TELEFONE PUBLICO”.</div>
+        <div class="supplier-source">Fontes: <b>PNCP + Compras.gov.br</b>. O sistema cruza os resultados das fontes públicas e elimina fornecedores duplicados. Telefone, quando localizado, vem de dado cadastral público de CNPJ; caso contrário aparece “SEM TELEFONE PUBLICO”.</div>
       </div>
-      <div id="supplierLoading" class="card hidden"><div class="notice">Consultando o PNCP e analisando os itens encontrados. Isso pode levar alguns segundos...</div></div>
+      <div id="supplierLoading" class="card hidden"><div class="notice">Consultando PNCP e Compras.gov.br em paralelo, ampliando a amostra de licitações e fornecedores. A pesquisa continua mesmo se uma fonte estiver instável...</div></div>
       <div id="supplierStats" class="stats hidden">
         <div class="stat"><span>Fornecedores</span><strong id="supplierStatTotal">—</strong></div>
         <div class="stat"><span>ME / EPP</span><strong id="supplierStatMe">—</strong></div>

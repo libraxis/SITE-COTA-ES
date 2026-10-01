@@ -286,7 +286,12 @@ async function searchSuppliers(e){
     $("#supplierStats").classList.remove("hidden"); $("#supplierResults").classList.remove("hidden"); $("#supplierResultHint").textContent=`${supplierData.length} fornecedor(es) encontrados para “${query}”`;
     renderSupplierRows();
     if(!supplierData.length){ $("#supplierNotice").textContent="Nenhum fornecedor com resultado homologado foi encontrado nos registros analisados. Tente um termo mais específico ou outra UF."; $("#supplierNotice").classList.remove("hidden"); }
-  }catch(err){ toast(err.message,true); $("#supplierNotice").textContent=err.message; $("#supplierNotice").classList.remove("hidden"); }
+  }catch(err){
+    const msg=err?.message||"Falha ao pesquisar fornecedores.";
+    toast(msg,true);
+    $("#supplierNotice").textContent=msg;
+    $("#supplierNotice").classList.remove("hidden");
+  }
   finally{ $("#supplierLoading").classList.add("hidden"); btn.disabled=false; }
 }
 
