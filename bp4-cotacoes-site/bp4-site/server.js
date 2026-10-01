@@ -203,6 +203,156 @@ app.post("/api/cotacoes/itens", asyncRoute(async (req, res) => {
   }));
 }));
 
+
+
+function normalizeSearchText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function normalizeCnpj(value) {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function formatCnpj(value) {
+  const digits = normalizeCnpj(value);
+  if (digits.length !== 14) return String(value ?? "");
+  return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+}
+
+function extractArray(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== "object") return [];
+  for (const key of ["data", "dados", "result", "resultado", "cotacoes", "itens", "precos", "items"]) {
+    if (Array.isArray(data[key])) return data[key];
+  }
+  return Object.values(data).find(Array.isArray) || [];
+}
+
+async function lookupPublicSupplier(cnpj) {
+  const digits = normalizeCnpj(cnpj);
+  if (digits.length !== 14) return { cnpj: formatCnpj(cnpj), telefone: "SEM TELEFONE PUBLICO" };
+
+  try {
+    const response = await fetch(`https://brasilapi.com.br/cnpj/v1/${digits}`, {
+      headers: { "Accept": "application/json" }
+    });
+    if (!response.ok) return { cnpj: formatCnpj(digits), telefone: "SEM TELEFONE PUBLICO" };
+    const data = await response.json();
+    const phones = [data.ddd_telefone_1, data.ddd_telefone_2]
+      .map(v => String(v || "").replace(/\D/g, ""))
+      .filter(Boolean);
+    return {
+      cnpj: formatCnpj(digits),
+      telefone: phones.length ? phones.join(" / ") : "SEM TELEFONE PUBLICO",
+      razaoSocial: data.razao_social || data.nome_fantasia || "",
+      nomeFantasia: data.nome_fantasia || ""
+    };
+  } catch (_) {
+    return { cnpj: formatCnpj(digits), telefone: "SEM TELEFONE PUBLICO" };
+  }
+}
+
+app.get("/api/fornecedores", asyncRoute(async (req, res) => {
+  const query = String(req.query.descricao || "").trim();
+  if (query.length < 2) return res.status(400).json({ error: "Informe pelo menos 2 caracteres do descritivo do item." });
+
+  const normalizedQuery = normalizeSearchText(query);
+  const terms = normalizedQuery.split(/\s+/).filter(Boolean);
+  const cotacoesData = await authenticatedCall(req, "/api/bp4/Cotacoes/GetCotacoes");
+  const cotacoes = extractArray(cotacoesData);
+
+  // A BP4 API disponibilizada neste projeto não possui um endpoint de busca global de itens.
+  // Portanto, a pesquisa percorre os itens das cotações visíveis à conta autenticada e,
+  // para os itens compatíveis, consulta os preços/fornecedores retornados pela BP4.
+  const matches = [];
+  for (const cotacao of cotacoes.slice(0, 100)) {
+    const id = Number(cotacao.idCotacao ?? cotacao.IdCotacao ?? cotacao.id);
+    if (!Number.isInteger(id)) continue;
+    let itens = [];
+    try {
+      const itensData = await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacoesItens?IdCotacao=${encodeURIComponent(id)}`);
+      itens = extractArray(itensData);
+    } catch (_) {
+      continue;
+    }
+    for (const item of itens) {
+      const text = normalizeSearchText(`${item.nomeItem || ""} ${item.descricao || ""}`);
+      if (terms.every(term => text.includes(term))) {
+        matches.push({
+          idCotacao: id,
+          idItem: Number(item.idCotacaoItem ?? item.IdCotacaoItem ?? item.idItem ?? item.id),
+          nomeItem: item.nomeItem || "",
+          descricao: item.descricao || ""
+        });
+      }
+    }
+  }
+
+  const uniqueMatches = [];
+  const seenItems = new Set();
+  for (const match of matches) {
+    if (!Number.isInteger(match.idItem) || seenItems.has(match.idItem)) continue;
+    seenItems.add(match.idItem);
+    uniqueMatches.push(match);
+  }
+
+  const fornecedores = new Map();
+  for (const match of uniqueMatches.slice(0, 50)) {
+    let precos = [];
+    try {
+      const precosData = await authenticatedCall(req, `/api/bp4/Cotacoes/GetCotacoesPrecosItens?IdItem=${encodeURIComponent(match.idItem)}`);
+      precos = extractArray(precosData);
+    } catch (_) {
+      continue;
+    }
+    for (const preco of precos) {
+      const cnpj = normalizeCnpj(preco.cnpjFornecedor);
+      if (cnpj.length !== 14) continue;
+      const current = fornecedores.get(cnpj) || {
+        cnpj,
+        ocorrencias: 0,
+        itens: new Set(),
+        fontes: new Set()
+      };
+      current.ocorrencias += 1;
+      current.itens.add(match.idItem);
+      if (preco.fontePesquisa) current.fontes.add(preco.fontePesquisa);
+      fornecedores.set(cnpj, current);
+    }
+  }
+
+  const base = [...fornecedores.values()]
+    .sort((a, b) => b.ocorrencias - a.ocorrencias)
+    .slice(0, 100);
+
+  // Consulta telefones públicos somente para os CNPJs encontrados na BP4, sem armazená-los.
+  const enriched = [];
+  for (const supplier of base) {
+    const publicData = await lookupPublicSupplier(supplier.cnpj);
+    enriched.push({
+      cnpj: publicData.cnpj,
+      razaoSocial: publicData.razaoSocial || "",
+      nomeFantasia: publicData.nomeFantasia || "",
+      telefone: publicData.telefone,
+      ocorrencias: supplier.ocorrencias,
+      quantidadeItens: supplier.itens.size,
+      fontes: [...supplier.fontes].join(", ") || "—"
+    });
+  }
+
+  res.json({
+    consulta: query,
+    itensEncontrados: uniqueMatches.length,
+    fornecedores: enriched,
+    observacao: "A pesquisa usa os itens das cotações visíveis à conta autenticada e os fornecedores presentes nos preços retornados pela BP4. O telefone, quando disponível, é consultado em cadastro público por CNPJ."
+  });
+}));
+
 app.get("/api/catalogos/unidades", asyncRoute(async (req, res) => {
   res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/GetTodasUnidadeMedida"));
 }));
