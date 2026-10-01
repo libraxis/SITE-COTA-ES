@@ -1,0 +1,598 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "BP4 API - Cotacoes e Autenticacao",
+    "description": "Endpoints de autenticacao JWT e operacoes de cotacoes para fornecedores externos.",
+    "version": "v1"
+  },
+  "paths": {
+    "/api/bp4/Auth/CreateUserToken": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Gera um token JWT a partir do UsuarioApiToken informado.",
+        "description": "Primeira chamada de qualquer integracao com a BP4 API. Use o `usuarioApiToken`\r\ngerado no painel do Banco de Precos (**Configuracoes > Preferencias > 2 - Token\r\nde Acesso API-Banco de Precos**) no body da requisicao. A API devolve um JWT valido\r\npor **8 horas**, que deve ser enviado em `Authorization: Bearer {token}` nas demais\r\nchamadas. Apos o vencimento, chame este endpoint novamente para obter um novo JWT.\r\n            \r\nSe o token informado estiver invalido, revogado ou nao existir, retorna 200 com\r\nmensagem de ausencia ou 401 de credencial invalida conforme o cenario.",
+        "requestBody": {
+          "description": "Payload contendo o UsuarioApiToken.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/User"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/User"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/User"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token gerado com sucesso.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial invalida para o usuario."
+          },
+          "500": {
+            "description": "Erro interno ao validar credenciais."
+          }
+        }
+      }
+    },
+    "/api/bp4/Cotacoes/GetCotacoes": {
+      "get": {
+        "tags": [
+          "Cotacoes"
+        ],
+        "summary": "Retorna a cotacao completa do usuario autenticado.",
+        "description": "Lista as cotacoes visiveis ao usuario autenticado.\r\n            \r\nQuando nao ha cotacoes visiveis, retorna 200 com mensagem de ausencia.\r\n            \r\n**Campos retornados por cotacao:**\r\n`idCotacao`, `descricao`, `finalidade`, `legislacao`, `quantidadeItens`,\r\n`dataPrevistaDivulgacaoEdital`, `formulaCotacaoItem`,\r\n`cotarAdmPublica`, `observacao`, `cotacaoPrazo`,\r\n`cotacaoCompartilhada`, `cotacaoEditavel`, `cotacaoFinalizada`,\r\n`cotacaoHora`, `idUsuario`.",
+        "responses": {
+          "200": {
+            "description": "Resultado da cotacao ou mensagem de conteudo ausente."
+          },
+          "401": {
+            "description": "Usuario nao autenticado."
+          },
+          "500": {
+            "description": "Erro interno ao consultar cotacoes."
+          }
+        }
+      }
+    },
+    "/api/bp4/Cotacoes/GetCotacaoCompleta": {
+      "get": {
+        "tags": [
+          "Cotacoes"
+        ],
+        "summary": "Retorna a cotacao, lotes e itens em um unico payload.",
+        "description": "Agrega em uma unica chamada o que seria obtido com tres requisicoes separadas\r\n(`/Cotacoes/GetCotacoes` + `/Cotacoes/GetCotacoesLotes` + `/Cotacoes/GetCotacoesItens`).\r\nUse quando a tela ou integracao precisa dos dados completos da cotacao de uma so vez.\r\n            \r\n`IdCotacao` e obrigatorio no body. Quando a cotacao nao existe ou nao pertence ao\r\nusuario autenticado, retorna 200 com mensagem de ausencia.\r\n            \r\n**Campos retornados — cotacao (objeto `cotacao`):**\r\n`idCotacao`, `descricao`, `finalidade`, `legislacao`, `quantidadeItens`,\r\n`dataPrevistaDivulgacaoEdital`, `formulaCotacaoItem`,\r\n`cotarAdmPublica`, `observacao`, `cotacaoPrazo`,\r\n`cotacaoCompartilhada`, `cotacaoEditavel`, `cotacaoFinalizada`,\r\n`cotacaoHora`, `idUsuario`.\r\n            \r\n**Campos retornados — itens (array `itens`):**\r\n`idCotacaoItem`, `idCotacao`, `nomeItem`, `descricao`, `observacao`,\r\n`codigo`, `ajusteFreteTipo`, `ajusteFreteValor`, `ajusteFreteObservacao`,\r\n`tipoTratamento`, `formulaItem`, `justificativaDespriorizacaoIncisos`,\r\n`quantidadeItem`, `idUnidadeMedida`, `nomeUnidadeMedida`, `siglaUnidadeMedida`,\r\n`idLote`, `nomeLote`, `ordemIndex`, `countPrecos`, `idCidadeEntrega`,\r\n`nomeCidadeEntrega`, `justificativaPercentual`, `justificativaPoucosPrecos`.",
+        "parameters": [
+          {
+            "name": "IdCotacao",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cotacao completa ou mensagem de ausencia."
+          },
+          "401": {
+            "description": "Usuario nao autenticado."
+          },
+          "500": {
+            "description": "Erro interno ao consultar cotacao completa."
+          }
+        }
+      }
+    },
+    "/api/bp4/Cotacoes/GetCotacoesLotes": {
+      "get": {
+        "tags": [
+          "Cotacoes"
+        ],
+        "summary": "Retorna os lotes associados a uma cotacao.",
+        "description": "Lista os lotes de uma cotacao especifica. Util para telas que precisam exibir a\r\nestrutura de lotes antes dos itens, ou para filtrar itens por lote em uma segunda\r\nrequisicao a `/Cotacoes/GetCotacoesItens`.\r\n            \r\n`IdCotacao` e obrigatorio no body. Quando a cotacao nao possui lotes, retorna 200\r\ncom mensagem de ausencia.",
+        "parameters": [
+          {
+            "name": "IdCotacao",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de lotes ou mensagem de ausencia."
+          },
+          "401": {
+            "description": "Usuario nao autenticado."
+          },
+          "500": {
+            "description": "Erro interno ao consultar lotes."
+          }
+        }
+      }
+    },
+    "/api/bp4/Cotacoes/GetCotacoesItens": {
+      "get": {
+        "tags": [
+          "Cotacoes"
+        ],
+        "summary": "Retorna os itens associados a uma cotacao.",
+        "description": "Lista os itens de uma cotacao.\r\n            \r\n`IdCotacao` e obrigatorio no body. Quando a cotacao nao possui itens, retorna 200\r\ncom mensagem de ausencia.\r\n            \r\n**Campos retornados por item:**\r\n`idCotacaoItem`, `idCotacao`, `nomeItem`, `descricao`, `observacao`,\r\n`codigo`, `ajusteFreteTipo`, `ajusteFreteValor`, `ajusteFreteObservacao`,\r\n`tipoTratamento`, `formulaItem`, `justificativaDespriorizacaoIncisos`,\r\n`quantidadeItem`, `idUnidadeMedida`, `nomeUnidadeMedida`, `siglaUnidadeMedida`,\r\n`idLote`, `nomeLote`, `ordemIndex`, `countPrecos`, `idCidadeEntrega`,\r\n`nomeCidadeEntrega`, `justificativaPercentual`, `justificativaPoucosPrecos`,\r\n`countFornecedoresConvidados`.",
+        "parameters": [
+          {
+            "name": "IdCotacao",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de itens ou mensagem de ausencia."
+          },
+          "401": {
+            "description": "Usuario nao autenticado."
+          },
+          "500": {
+            "description": "Erro interno ao consultar itens."
+          }
+        }
+      }
+    },
+    "/api/bp4/Cotacoes/GetCotacoesPrecosItens": {
+      "get": {
+        "tags": [
+          "Cotacoes"
+        ],
+        "summary": "Retorna os precos pesquisados para um item de cotacao.",
+        "description": "Retorna os precos encontrados para um item especifico, agregando todas as fontes\r\ndisponiveis: precos publicos (ComprasNet), BPSaude, CMED, Sinapi, agropecuarios,\r\nInciso II (Dominio Amplo), fornecedores convidados, Nota Fiscal (Nota Parana) e PMS.\r\n            \r\n`IdItem` e obrigatorio no body. Quando o item nao possui precos coletados, retorna\r\n200 com mensagem de ausencia.\r\n            \r\n**Campos retornados por preco (comuns a todas as fontes):**\r\n`fontePesquisa`, `produto`, `descricao`, `unidadeMedida`, `modalidade`,\r\n`data`, `dataHomologacao`, `uf`, `preco`, `formulaPreco`, `nomeIndice`,\r\n`valorCorrecao`, `isDesconsideradoDoCalculo`, `justificativaDesconsiderado`,\r\n`cnpjFornecedor`.\r\n            \r\n**Campos retornados apenas para precos publicos (fonte ComprasNet):**\r\n`orgao`, `objeto`, `editalNumero`, `editalProcesso`, `uasg`,\r\n`sistemaRegistroPrecos`, `codigoReferencia`, `valorEstimadoLicitacao`,\r\n`numeroItem`, `numeroLote`, `valorEstimadoItem`, `exclusivoMeEpp`, `beneficio`.\r\n            \r\n**Campos retornados apenas para Dominio Amplo (Inciso II):**\r\n`comprovanteUrl`, `loja`.\r\n            \r\nCampos exclusivos de fonte nao disponivel para um registro sao retornados como `null`.",
+        "parameters": [
+          {
+            "name": "IdItem",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de precos ou mensagem de ausencia."
+          },
+          "401": {
+            "description": "Usuario nao autenticado."
+          },
+          "500": {
+            "description": "Erro interno ao consultar precos do item."
+          }
+        }
+      }
+    },
+    "/api/bp4/Cotacoes/CriarCotacoes": {
+      "post": {
+        "tags": [
+          "Cotacoes"
+        ],
+        "summary": "Cria uma nova cotacao para o usuario autenticado.",
+        "description": "Cria uma cotacao no contrato do usuario autenticado.\r\n            \r\n**Campos obrigatorios:**\r\n- `Descricao`: nome/identificacao da cotacao\r\n            \r\nResposta 200 de sucesso inclui `idCotacao` da cotacao criada.",
+        "requestBody": {
+          "description": "Parametros da cotacao para criacao.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriarCotacaoQueryDTO"
+              },
+              "example": {
+                "descricao": "Cotacao papelaria 2026/01",
+                "legislacao": 1,
+                "idFinalidadeConviteFornecedor": 2,
+                "dataPrevistaDivulgacaoEdital": "2026-12-31",
+                "observacao": "Reposicao de material de escritorio"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriarCotacaoQueryDTO"
+              },
+              "example": {
+                "descricao": "Cotacao papelaria 2026/01",
+                "legislacao": 1,
+                "idFinalidadeConviteFornecedor": 2,
+                "dataPrevistaDivulgacaoEdital": "2026-12-31",
+                "observacao": "Reposicao de material de escritorio"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriarCotacaoQueryDTO"
+              },
+              "example": {
+                "descricao": "Cotacao papelaria 2026/01",
+                "legislacao": 1,
+                "idFinalidadeConviteFornecedor": 2,
+                "dataPrevistaDivulgacaoEdital": "2026-12-31",
+                "observacao": "Reposicao de material de escritorio"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cotacao criada ou mensagem de negocio."
+          },
+          "400": {
+            "description": "Erro ao criar cotacao."
+          },
+          "401": {
+            "description": "Usuario nao autenticado."
+          },
+          "500": {
+            "description": "Erro interno ao criar cotacao."
+          }
+        }
+      }
+    },
+    "/api/bp4/Cotacoes/CriarItens": {
+      "post": {
+        "tags": [
+          "Cotacoes"
+        ],
+        "summary": "Cria um novo item em uma cotacao existente.",
+        "description": "Adiciona um item a uma cotacao ja existente.\r\n            \r\n**Campos obrigatorios:**\r\n- `IdCotacao`: cotacao alvo (deve pertencer ao usuario autenticado)\r\n- `nome`: maximo **255 caracteres**\r\n- `descricao`: maximo **2000 caracteres**\r\n            \r\n**Validacoes adicionais:**\r\n- `PercentualPrecoMaximo` deve estar entre **-99 e 999** quando informado.\r\n- `AjusteFreteObservacao` aceita no maximo **200 caracteres**.\r\n            \r\nValores de `IdUnidadeMedida` e `IdCidadeEntrega` podem ser obtidos em\r\n`/Cotacoes/GetTodasUnidadeMedida` e `/Cotacoes/GetTodasCidades`. Resposta 200 de\r\nsucesso inclui `idItem` do item criado.",
+        "requestBody": {
+          "description": "Parametros do item para criacao.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriarItemQueryDTO"
+              },
+              "example": {
+                "idCotacao": 12345,
+                "codigo": 1234,
+                "nome": "Resma de papel A4",
+                "descricao": "Resma de papel A4 75g/m2 - 500 folhas, branco",
+                "observacao": "Embalagem lacrada",
+                "idCidadeEntrega": 0,
+                "ajusteFreteTipo": 1,
+                "ajusteFreteValor": 0,
+                "ajusteFreteObservacao": null,
+                "percentualPrecoMaximo": 0,
+                "idUnidadeMedida": 0,
+                "quantidadeItem": 0
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriarItemQueryDTO"
+              },
+              "example": {
+                "idCotacao": 12345,
+                "codigo": 1234,
+                "nome": "Resma de papel A4",
+                "descricao": "Resma de papel A4 75g/m2 - 500 folhas, branco",
+                "observacao": "Embalagem lacrada",
+                "idCidadeEntrega": 0,
+                "ajusteFreteTipo": 1,
+                "ajusteFreteValor": 0,
+                "ajusteFreteObservacao": null,
+                "percentualPrecoMaximo": 0,
+                "idUnidadeMedida": 0,
+                "quantidadeItem": 0
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriarItemQueryDTO"
+              },
+              "example": {
+                "idCotacao": 12345,
+                "codigo": 1234,
+                "nome": "Resma de papel A4",
+                "descricao": "Resma de papel A4 75g/m2 - 500 folhas, branco",
+                "observacao": "Embalagem lacrada",
+                "idCidadeEntrega": 0,
+                "ajusteFreteTipo": 1,
+                "ajusteFreteValor": 0,
+                "ajusteFreteObservacao": null,
+                "percentualPrecoMaximo": 0,
+                "idUnidadeMedida": 0,
+                "quantidadeItem": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Item criado ou mensagem de negocio."
+          },
+          "400": {
+            "description": "Erro ao criar item."
+          },
+          "401": {
+            "description": "Usuario nao autenticado."
+          },
+          "500": {
+            "description": "Erro interno ao criar item."
+          }
+        }
+      }
+    },
+    "/api/bp4/Cotacoes/GetTodasUnidadeMedida": {
+      "get": {
+        "tags": [
+          "Cotacoes"
+        ],
+        "summary": "Retorna todas as unidades de medida cadastradas.",
+        "description": "Consulta todas as unidades de medida disponiveis no sistema. Retorna uma lista\r\ncompleta das unidades cadastradas, util para **referencia ou selecao** em outras\r\ntelas (ex.: preencher o campo `IdUnidadeMedida` ao criar um item em\r\n`/Cotacoes/CriarItens`).\r\n            \r\nNao aceita filtros.",
+        "responses": {
+          "200": {
+            "description": "Lista de unidades ou mensagem de ausencia."
+          },
+          "401": {
+            "description": "Usuario nao autenticado."
+          },
+          "500": {
+            "description": "Erro interno ao consultar unidades."
+          }
+        }
+      }
+    },
+    "/api/bp4/Cotacoes/GetTodasCidades": {
+      "get": {
+        "tags": [
+          "Cotacoes"
+        ],
+        "summary": "Retorna todas as cidades disponiveis para cotacoes.",
+        "description": "Consulta todas as cidades disponiveis no sistema. Retorna uma lista completa para\r\n**referencia ou selecao** em outras telas (ex.: preencher o campo `IdCidadeEntrega`\r\nao criar um item em `/Cotacoes/CriarItens`).\r\n            \r\nNao aceita filtros.",
+        "responses": {
+          "200": {
+            "description": "Lista de cidades ou mensagem de ausencia."
+          },
+          "401": {
+            "description": "Usuario nao autenticado."
+          },
+          "500": {
+            "description": "Erro interno ao consultar cidades."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuthTokenResponse": {
+        "type": "object",
+        "properties": {
+          "mensagem": {
+            "type": "string",
+            "description": "Mensagem de confirmacao da emissao do token.",
+            "nullable": true
+          },
+          "token": {
+            "type": "string",
+            "description": "JWT gerado para autenticacao nas demais rotas (envie como `Authorization: Bearer {token}`).",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Resposta do endpoint /Auth/CreateUserToken.",
+        "example": {
+          "mensagem": "JWT Token de Acesso criado para user ID: ",
+          "token": "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJJZCI6IjFhNTllZGMyLTQ4NDgtNDE5NC1hMjUzLWVkM2RhODNkZDdlYSIsInN1YiI6Ijc1NjcyIiwianRpIjoiNTM1MWY3OWMtNTA2NS00NGQ0LTgwYTQtOTdiMDMwNzViMmIwIiwibmJmIjoxNjk2NTA3MzU2LCJleHAiOjE2OTY1MzYxNTYsImlhdCI6MTY5NjUwNzM1NiwiaXNzIjoiQlA0QVBJIiwiYXVkIjoiQlA0In0.mv66LuSbn-yzhiWa6jPWiMy1HpS_4MKMA18ekg7qZyzOFQO49DNJxZkPHz945Dmrw6ebO3W04yWL5w8h4Aye7A"
+        }
+      },
+      "CriarCotacaoQueryDTO": {
+        "type": "object",
+        "properties": {
+          "descricao": {
+            "type": "string",
+            "description": "Descricao/identificacao da cotacao. Obrigatorio.",
+            "nullable": true
+          },
+          "legislacao": {
+            "type": "integer",
+            "description": "Legislacao da cotacao (0, 1 ou 2).",
+            "format": "int32"
+          },
+          "idFinalidadeConviteFornecedor": {
+            "type": "integer",
+            "description": "Finalidade do convite ao fornecedor (1 ou 2). Padrao 1 quando ausente ou invalido.",
+            "format": "int32",
+            "nullable": true
+          },
+          "dataPrevistaDivulgacaoEdital": {
+            "type": "string",
+            "description": "Data prevista de divulgacao do edital. Ignorada quando Legislacao e 0.",
+            "format": "date-time",
+            "nullable": true
+          },
+          "observacao": {
+            "type": "string",
+            "description": "Observacao livre sobre a cotacao.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Dados para criacao de uma cotacao."
+      },
+      "CriarItemQueryDTO": {
+        "type": "object",
+        "properties": {
+          "idCotacao": {
+            "type": "integer",
+            "description": "Cotacao alvo do item. Obrigatorio; deve pertencer ao usuario autenticado.",
+            "format": "int32"
+          },
+          "codigo": {
+            "type": "integer",
+            "description": "Codigo do item.",
+            "format": "int32"
+          },
+          "nome": {
+            "type": "string",
+            "description": "Nome do item. Obrigatorio, maximo 255 caracteres.",
+            "nullable": true
+          },
+          "descricao": {
+            "type": "string",
+            "description": "Descricao do item. Obrigatorio, maximo 2000 caracteres.",
+            "nullable": true
+          },
+          "observacao": {
+            "type": "string",
+            "description": "Observacao livre sobre o item.",
+            "nullable": true
+          },
+          "idCidadeEntrega": {
+            "type": "integer",
+            "description": "Cidade de entrega. Ver /Cotacoes/GetTodasCidades.",
+            "format": "int32",
+            "nullable": true
+          },
+          "ajusteFreteTipo": {
+            "type": "integer",
+            "description": "Tipo de ajuste de frete aplicado ao item.",
+            "format": "int32",
+            "nullable": true
+          },
+          "ajusteFreteValor": {
+            "type": "number",
+            "description": "Valor do ajuste de frete.",
+            "format": "double",
+            "nullable": true
+          },
+          "ajusteFreteObservacao": {
+            "type": "string",
+            "description": "Justificativa do ajuste de frete. Maximo 200 caracteres.",
+            "nullable": true
+          },
+          "percentualPrecoMaximo": {
+            "type": "number",
+            "description": "Percentual maximo de preco aceito. Deve estar entre -99 e 999.",
+            "format": "double",
+            "nullable": true
+          },
+          "idUnidadeMedida": {
+            "type": "integer",
+            "description": "Unidade de medida do item. Ver /Cotacoes/GetTodasUnidadeMedida.",
+            "format": "int32"
+          },
+          "quantidadeItem": {
+            "type": "integer",
+            "description": "Quantidade do item.",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Dados para criacao de um item em uma cotacao existente."
+      },
+      "IdCotacaoBodyDTO": {
+        "type": "object",
+        "properties": {
+          "idCotacao": {
+            "type": "integer",
+            "description": "Id da cotacao. Obrigatorio nos endpoints de detalhe; opcional em GetCotacoes.",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Filtro de cotacao enviado no body."
+      },
+      "IdItemBodyDTO": {
+        "type": "object",
+        "properties": {
+          "idItem": {
+            "type": "integer",
+            "description": "Id do item. Obrigatorio.",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Filtro de item enviado no body."
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "userName": {
+            "type": "string",
+            "description": "Nome de usuario (nao utilizado pelo fluxo de token de API).",
+            "nullable": true
+          },
+          "password": {
+            "type": "string",
+            "description": "Senha do usuario (nao utilizada pelo fluxo de token de API).",
+            "nullable": true
+          },
+          "idUsuario": {
+            "type": "integer",
+            "description": "Identificador interno do usuario (preenchido pela API na resposta; ignorado na requisicao).",
+            "format": "int32",
+            "nullable": true
+          },
+          "usuarioApiToken": {
+            "type": "string",
+            "description": "Token de acesso gerado no painel do Banco de Precos em Configuracoes > Preferencias > Token de Acesso API-Banco de Precos.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Payload de autenticacao consumido por /Auth/CreateUserToken.",
+        "example": {
+          "usuarioApiToken": "6RcGdFoVEOpG7BwkJgmjdmouYhz56o4BEfSvtN4n"
+        }
+      }
+    },
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "description": "Informe o token JWT no formato: Bearer {token}",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    {
+      "Bearer": [ ]
+    }
+  ]
+}
