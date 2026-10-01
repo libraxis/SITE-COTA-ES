@@ -35,7 +35,7 @@ function showView(view){
   $$(".view").forEach(v=>v.classList.add("hidden"));
   $(`#${view}View`).classList.remove("hidden");
   $$(".nav").forEach(n=>n.classList.toggle("active", n.dataset.view===view));
-  const titles={dashboard:"Visão geral",cotacoes:"Cotações",criar:"Criar cotação",catalogos:"Catálogos",fornecedores:"Fornecedores"};
+  const titles={dashboard:"Visão geral",cotacoes:"Cotações",criar:"Criar cotação",catalogos:"Catálogos",fornecedores:"Fornecedores",atas:"ATA de Registro de Preços"};
   $("#pageTitle").textContent=titles[view]||"ST Cotações 1.0";
 }
 
@@ -320,6 +320,37 @@ async function searchSuppliers(e){
   finally{ $("#supplierLoading").classList.add("hidden"); btn.disabled=false; }
 }
 
+
+let ataData=[];
+function fmtDateRange(a,b){ const x=a?fmtDate(a):"—", y=b?fmtDate(b):"—"; return y==="—"?x:`${x} → ${y}`; }
+function renderAtaRows(){
+  const q=String($("#ataFilter").value||"").toLowerCase();
+  const rows=ataData.filter(a=>`${a.numero||""} ${a.controlePncp||""} ${a.descricao||""} ${a.orgao||""} ${a.uf||""} ${a.fornecedor||""} ${a.cnpjFornecedor||""}`.toLowerCase().includes(q));
+  $("#ataTable tbody").innerHTML=rows.length?rows.map(a=>`<tr>
+    <td><strong>${esc(a.numero||"—")}</strong><br><small>${esc(a.controlePncp||"—")}</small><br><span class="source-tag">${esc(a.fonte||"—")}</span></td>
+    <td style="white-space:normal;min-width:300px">${esc(a.descricao||"—")}${a.item?`<br><small>Item ${esc(a.item)}</small>`:""}</td>
+    <td style="white-space:normal">${esc(a.orgao||"—")}</td><td>${esc(a.uf||"—")}</td>
+    <td>${esc(fmtDateRange(a.vigenciaInicio,a.vigenciaFim))}</td>
+    <td><span class="badge ${a.permiteAdesao?'badge-ok':''}">${a.permiteAdesao?'SIM':'NÃO INFORMADO'}</span></td>
+    <td style="white-space:normal">${esc(a.fornecedor||"—")}<br><small>${esc(fmtCnpj(a.cnpjFornecedor)||"")}</small></td>
+    <td>${a.link?`<a class="link-btn" href="${esc(a.link)}" target="_blank" rel="noopener">Consultar PNCP</a>`:'—'}</td>
+  </tr>`).join(""):'<tr><td colspan="8" class="empty">Nenhuma ata encontrada.</td></tr>';
+}
+function resetAtas(){ ataData=[]; $("#ataStats").classList.add("hidden"); $("#ataResults").classList.add("hidden"); $("#ataNotice").classList.add("hidden"); $("#ataTable tbody").innerHTML='<tr><td colspan="8" class="empty">Faça uma pesquisa.</td></tr>'; }
+async function searchAtas(event){
+  event?.preventDefault(); resetAtas();
+  const q=$("#ataQuery").value.trim(), uf=$("#ataUf").value; if(q.length<3)return;
+  const btn=$("#ataSearchBtn"); btn.disabled=true; $("#ataLoading").classList.remove("hidden");
+  try{
+    const data=await api(`/api/atas/mapa?q=${encodeURIComponent(q)}&uf=${encodeURIComponent(uf)}&adesao=true&paginas=6`);
+    ataData=data.atas||[]; $("#ataStatTotal").textContent=ataData.length; $("#ataStatAdesao").textContent=ataData.filter(a=>a.permiteAdesao).length; $("#ataStatFontes").textContent=[...new Set(ataData.map(a=>a.fonte))].join(" + ")||"—";
+    $("#ataStats").classList.remove("hidden"); $("#ataResults").classList.remove("hidden"); $("#ataResultHint").textContent=`${ataData.length} ata(s) para “${q}”`; renderAtaRows();
+    if(data.warnings?.length){ $("#ataNotice").textContent="Algumas fontes apresentaram instabilidade, mas a pesquisa foi concluída com as demais. "+data.warnings.join(" | "); $("#ataNotice").classList.remove("hidden"); }
+    if(!ataData.length){ $("#ataNotice").textContent="Nenhuma ata vigente com possibilidade de adesão explicitamente informada foi localizada. Consulte também os documentos da ata para confirmar saldo, limites e autorização do órgão gerenciador."; $("#ataNotice").classList.remove("hidden"); }
+  }catch(e){ $("#ataNotice").textContent=e?.message||"Falha ao pesquisar atas."; $("#ataNotice").classList.remove("hidden"); toast($("#ataNotice").textContent,true); }
+  finally{ $("#ataLoading").classList.add("hidden"); btn.disabled=false; }
+}
+
 $$(".nav").forEach(n=>n.addEventListener("click",async()=>{
   if(!authenticated) return;
   showView(n.dataset.view);
@@ -344,6 +375,8 @@ $("#loadCities").addEventListener("click",()=>loadCities().catch(e=>toast(e.mess
 $("#supplierSearchForm").addEventListener("submit",searchSuppliers);
 $("#supplierPurchasesStat").addEventListener("click",()=>{ if(supplierPurchases.length){ $("#supplierPurchases").classList.remove("hidden"); $("#supplierPurchases").scrollIntoView({behavior:"smooth",block:"start"}); } });
 $("#supplierFilter").addEventListener("input",renderSupplierRows);
+$("#ataSearchForm").addEventListener("submit",searchAtas);
+$("#ataFilter").addEventListener("input",renderAtaRows);
 $("#quickUnits").addEventListener("click",()=>{showView("catalogos");loadUnits().catch(e=>toast(e.message,true));});
 $("#quickCities").addEventListener("click",()=>{showView("catalogos");loadCities().catch(e=>toast(e.message,true));});
 

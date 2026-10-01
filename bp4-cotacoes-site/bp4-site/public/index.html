@@ -20,6 +20,7 @@
       <button class="nav" data-view="criar">Criar cotação</button>
       <button class="nav" data-view="catalogos">Catálogos</button>
       <button class="nav" data-view="fornecedores">Fornecedores</button>
+      <button class="nav" data-view="atas">ATA de Registro de Preços</button>
     </nav>
     <div class="sidebar-bottom">
       <div id="authBadge" class="auth-badge offline">Desconectado</div>
@@ -30,7 +31,7 @@
   <main class="main">
     <header class="topbar">
       <div>
-        <div class="eyebrow">Banco de Preços • Integração API</div>
+        <div class="eyebrow">ST Cotações 1.0 • Integração de compras públicas</div>
         <h1 id="pageTitle">Visão geral</h1>
       </div>
       <div class="top-actions">
@@ -41,7 +42,7 @@
     <section id="loginView" class="view login-view">
       <div class="login-card">
         <div class="logo large">BP</div>
-        <h2>Conectar à BP4 API</h2>
+        <h2>Conectar à API do Banco de Preços</h2>
         <p>Informe seu <b>Token de Acesso API-Banco de Preços</b>. O token fica somente no servidor desta sessão e não é enviado ao navegador para chamadas posteriores.</p>
         <label>Token de acesso</label>
         <form id="loginForm" autocomplete="off">
@@ -157,6 +158,31 @@
       <div id="supplierNotice" class="notice hidden"></div>
     </section>
 
+
+    <section id="atasView" class="view hidden">
+      <div class="card supplier-hero">
+        <div class="card-head"><div><div class="eyebrow">ATA DE REGISTRO DE PREÇOS</div><h3>Atas vigentes disponíveis para adesão</h3></div></div>
+        <p class="muted">Pesquise um item e encontre atas de registro de preços vigentes que informem expressamente a possibilidade de adesão. O resultado cruza PNCP e Compras.gov.br.</p>
+        <form id="ataSearchForm" class="supplier-search">
+          <div class="grow"><label>Descritivo do item</label><input id="ataQuery" required minlength="3" placeholder="Ex.: papel A4, computador, material elétrico"></div>
+          <div><label>UF</label><select id="ataUf"><option value="">Todas</option><option>AC</option><option>AL</option><option>AP</option><option>AM</option><option>BA</option><option>CE</option><option>DF</option><option>ES</option><option>GO</option><option>MA</option><option>MT</option><option>MS</option><option>MG</option><option>PA</option><option>PB</option><option>PR</option><option>PE</option><option>PI</option><option>RJ</option><option>RN</option><option>RS</option><option>RO</option><option>RR</option><option>SC</option><option>SP</option><option>SE</option><option>TO</option></select></div>
+          <button id="ataSearchBtn" class="primary" type="submit">Pesquisar atas</button>
+        </form>
+        <div class="supplier-source">Fontes: <b>PNCP + Compras.gov.br</b>. A tela prioriza atas vigentes com indicação explícita de “Permite Adesão”.</div>
+      </div>
+      <div id="ataLoading" class="card hidden"><div class="notice">Consultando PNCP e Compras.gov.br em paralelo e verificando atas vigentes com possibilidade de adesão...</div></div>
+      <div id="ataNotice" class="notice hidden"></div>
+      <div id="ataStats" class="stats hidden">
+        <div class="stat"><span>Atas encontradas</span><strong id="ataStatTotal">—</strong></div>
+        <div class="stat"><span>Com adesão informada</span><strong id="ataStatAdesao">—</strong></div>
+        <div class="stat"><span>Fontes</span><strong id="ataStatFontes">—</strong></div>
+      </div>
+      <div id="ataResults" class="card hidden">
+        <div class="card-head"><div><h3>Atas localizadas</h3><span id="ataResultHint" class="muted"></span></div><input id="ataFilter" class="compact-input" placeholder="Filtrar órgão, ata ou CNPJ"></div>
+        <div class="table-wrap"><table id="ataTable"><thead><tr><th>Ata</th><th>Objeto/item</th><th>Órgão</th><th>UF</th><th>Vigência</th><th>Adesão</th><th>Fornecedor</th><th></th></tr></thead><tbody><tr><td colspan="8" class="empty">Faça uma pesquisa.</td></tr></tbody></table></div>
+      </div>
+    </section>
+
     <section id="catalogosView" class="view hidden">
       <div class="grid two">
         <div class="card">
@@ -171,6 +197,6 @@
     </section>
   </main>
 
-  <script src="/app.js?v=6"></script>
+  <script src="/app.js?v=7"></script>
 </body>
 </html>
