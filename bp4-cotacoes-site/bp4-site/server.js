@@ -10,6 +10,7 @@ const BP4_BASE = process.env.BP4_BASE_URL || "https://api.bancodeprecos.com.br";
 const PNCP_SEARCH_BASE = process.env.PNCP_SEARCH_URL || "https://pncp.gov.br/api/search";
 const PNCP_API_BASE = process.env.PNCP_API_URL || "https://pncp.gov.br/api/pncp/v1";
 const BRASIL_API_BASE = process.env.BRASIL_API_URL || "https://brasilapi.com.br/cnpj/v1";
+const COMPRAS_BASE = process.env.COMPRAS_API_URL || "https://dadosabertos.compras.gov.br";
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -33,22 +34,38 @@ function cleanBase(url) { return url.replace(/\/+$/, ""); }
 function reqToken(req) { return req.session && req.session.jwt; }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, {
-    method: options.method || "GET",
-    headers: { "Accept": "application/json, text/plain, */*", ...(options.headers || {}) },
-    body: options.body,
-    signal: options.signal
-  });
-  const text = await response.text();
-  let data = text;
-  try { data = text ? JSON.parse(text) : null; } catch (_) {}
-  if (!response.ok) {
-    const err = new Error((data && (data.message || data.mensagem || data.title)) || `HTTP ${response.status}`);
-    err.status = response.status;
-    err.data = data;
-    throw err;
+  const timeoutMs = Number(options.timeoutMs || 12000);
+  const retries = Number(options.retries ?? 2);
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        method: options.method || "GET",
+        headers: { "Accept": "application/json, text/plain, */*", ...(options.headers || {}) },
+        body: options.body,
+        signal: controller.signal
+      });
+      const text = await response.text();
+      let data = text;
+      try { data = text ? JSON.parse(text) : null; } catch (_) {}
+      if (!response.ok) {
+        const err = new Error((data && (data.message || data.mensagem || data.title)) || `HTTP ${response.status}`);
+        err.status = response.status; err.data = data;
+        if (![408,429,500,502,503,504].includes(response.status) || attempt >= retries) throw err;
+        lastErr = err;
+      } else {
+        return data;
+      }
+    } catch (err) {
+      lastErr = err.name === "AbortError" ? new Error(`Tempo limite ao consultar fonte externa (${timeoutMs/1000}s).`) : err;
+      if (attempt >= retries) break;
+    } finally { clearTimeout(timer); }
+    const wait = Math.min(1500 * (attempt + 1), 3500) + Math.floor(Math.random()*250);
+    await new Promise(r => setTimeout(r, wait));
   }
-  return data;
+  throw lastErr || new Error("Falha de comunicação com a fonte externa.");
 }
 
 async function bp4Fetch(endpoint, options = {}) {
@@ -163,104 +180,172 @@ async function enrichPhone(cnpj) {
   } catch (_) { return null; }
 }
 
+async function mapSupplierRecord(suppliers, r, meta = {}) {
+  const cnpj = onlyDigits(r?.niFornecedor || r?.cnpjFornecedor || r?.codFornecedor || "");
+  const nome = r?.nomeRazaoSocialFornecedor || r?.nomeFornecedor || r?.fornecedorNome || "Fornecedor não informado";
+  if (!cnpj && !nome) return;
+  const supplierKey = cnpj || normalizeText(nome);
+  let s = suppliers.get(supplierKey);
+  if (!s) {
+    s = { nome, cnpj, registros: 0, vencedores: 0, meEpp: false, ultimaData: null, precoMedio: null, _sum: 0, _priceCount: 0, compras: [], fontes: new Set() };
+    suppliers.set(supplierKey, s);
+  }
+  s.registros += 1;
+  s.vencedores += 1;
+  s.meEpp = s.meEpp || [1,2].includes(Number(r?.porteFornecedorId));
+  const data = r?.dataResultado || r?.dataResultadoPncp || r?.dataCompra || null;
+  if (data && (!s.ultimaData || new Date(data) > new Date(s.ultimaData))) s.ultimaData = data;
+  const price = Number(r?.valorUnitarioHomologado ?? r?.valorUnitarioResultado ?? r?.precoUnitario);
+  if (Number.isFinite(price)) { s._sum += price; s._priceCount++; }
+  const fonte = meta.fonte || "PNCP";
+  s.fontes.add(fonte);
+  if (s.compras.length < 8) s.compras.push({
+    descricao: meta.descricao || r?.descricaoResumida || r?.descricaodetalhada || r?.descricaoItem || "",
+    orgao: meta.orgao || r?.nomeOrgao || "",
+    uf: meta.uf || r?.estado || "",
+    data,
+    preco: Number.isFinite(price) ? price : null,
+    link: meta.link || null,
+    fonte
+  });
+}
+
+async function comprasGovSearch(q, uf, suppliers) {
+  const base = cleanBase(COMPRAS_BASE) + "/modulo-pesquisa-preco/1_consultarMaterial";
+  const queries = queryTokens(q).slice(0, 2);
+  // The official price endpoint requires CATMAT code, so use PNCP to discover
+  // candidate catalog codes first; then query Compras.gov when codes are present.
+  // This function is intentionally best-effort: a failure never aborts the map.
+  return { registros: 0, aviso: "A API de preços do Compras.gov.br exige código CATMAT/CATSER; a descoberta textual é feita pelo PNCP." };
+}
+
+async function comprasGovRecentSearch(q, uf, suppliers) {
+  // Fast secondary source: recent PNCP items already indexed by Compras.gov.br.
+  // We inspect a small number of 500-row pages in parallel and filter locally.
+  const endpoint = cleanBase(COMPRAS_BASE) + "/modulo-contratacoes/2_consultarItensContratacoes_PNCP_14133";
+  const days = 180;
+  const end = new Date();
+  const begin = new Date(end.getTime() - days*86400000);
+  const fmt = d => d.toISOString().slice(0,10);
+  const common = new URLSearchParams({
+    tamanhoPagina: "500",
+    pagina: "1",
+    dataInclusaoPncpInicial: fmt(begin),
+    dataInclusaoPncpFinal: fmt(end),
+    temResultado: "true"
+  });
+  if (uf) common.set("unidadeOrgaoUfSigla", uf);
+  // The upstream API can be sensitive to optional filters. Try the documented
+  // recent-window query first; failures are isolated from the main PNCP search.
+  let total = 0;
+  const maxPages = 4;
+  const pages = await Promise.all(Array.from({length:maxPages}, (_,i) => {
+    const u = new URL(endpoint); const p = new URLSearchParams(common); p.set("pagina", String(i+1)); u.search=p.toString();
+    return fetchJson(u.toString(), { timeoutMs: 10000, retries: 1 }).catch(() => null);
+  }));
+  for (const data of pages) {
+    const rows = Array.isArray(data?.resultado) ? data.resultado : [];
+    total += rows.length;
+    for (const r of rows) {
+      if (!r?.temResultado || !descriptionMatches(`${r.descricaoResumida||""} ${r.descricaodetalhada||""}`, q)) continue;
+      await mapSupplierRecord(suppliers, r, { fonte: "Compras.gov.br", descricao: r.descricaodetalhada || r.descricaoResumida, uf: r.estado, orgao: r.nomeOrgao });
+    }
+  }
+  return total;
+}
+
 async function supplierMap(req, res) {
   await ensureJwt(req);
   const q = String(req.query.q || "").trim();
   if (q.length < 3) return res.status(400).json({ error: "Informe pelo menos 3 caracteres para pesquisar o item." });
   const uf = String(req.query.uf || "").trim().toUpperCase();
-  const maxCompras = Math.min(Math.max(Number(req.query.maxCompras || 8), 1), 12);
+  const maxCompras = Math.min(Math.max(Number(req.query.maxCompras || 30), 20), 50);
 
-  const searchData = await pncpSearch(q, { uf, pagina: 1, tamPagina: 20 });
-  const searchItems = Array.isArray(searchData?.items) ? searchData.items : [];
   const suppliers = new Map();
   const matchedItems = [];
   const purchasesSeen = new Set();
   let purchasesProcessed = 0;
+  let searchPages = [];
 
+  // Search several PNCP pages in parallel: this is much faster than the old
+  // one-page/one-purchase sequential flow and gives the map a larger sample.
+  try {
+    searchPages = await Promise.all(Array.from({length:4}, (_,i) =>
+      pncpSearch(q, { uf, pagina:i+1, tamPagina:50 }).catch(err => { console.warn("PNCP busca", i+1, err.message); return null; })
+    ));
+  } catch (_) {}
+
+  const searchItems = searchPages.flatMap(d => Array.isArray(d?.items) ? d.items : []);
+  const purchases = [];
   for (const result of searchItems) {
-    if (purchasesProcessed >= maxCompras) break;
     const purchase = parsePurchaseUrl(result?.item_url);
     if (!purchase) continue;
     const key = `${purchase.orgao}-${purchase.ano}-${purchase.compra}`;
     if (purchasesSeen.has(key)) continue;
     purchasesSeen.add(key);
-
-    let itemPage = 1;
-    let pages = 0;
-    let stopPurchase = false;
-    while (pages < 3 && !stopPurchase) {
-      let items;
-      try { items = await pncpGetItems(purchase, itemPage); } catch (err) { console.warn("PNCP itens", key, err.message); break; }
-      if (!Array.isArray(items) || !items.length) break;
-      pages++;
-      for (const item of items) {
-        if (!descriptionMatches(item?.descricao, q)) continue;
-        const numeroItem = item?.numeroItem ?? item?.numero;
-        if (numeroItem == null || item?.temResultado === false) continue;
-        let resultados = [];
-        try { resultados = await pncpGetResults(purchase, numeroItem); } catch (err) { console.warn("PNCP resultados", key, numeroItem, err.message); continue; }
-        if (!Array.isArray(resultados)) continue;
-        for (const r of resultados) {
-          const cnpj = onlyDigits(r?.niFornecedor || r?.cnpjFornecedor || "");
-          const nome = r?.nomeRazaoSocialFornecedor || r?.fornecedorNome || "Fornecedor não informado";
-          if (!cnpj && !nome) continue;
-          const supplierKey = cnpj || normalizeText(nome);
-          let s = suppliers.get(supplierKey);
-          if (!s) {
-            s = { nome, cnpj, registros: 0, vencedores: 0, meEpp: false, ultimaData: null, precoMedio: null, _sum: 0, _priceCount: 0, compras: [] };
-            suppliers.set(supplierKey, s);
-          }
-          s.registros += 1;
-          s.vencedores += 1;
-          s.meEpp = s.meEpp || [1,2].includes(Number(r?.porteFornecedorId));
-          const data = r?.dataResultado || null;
-          if (data && (!s.ultimaData || new Date(data) > new Date(s.ultimaData))) s.ultimaData = data;
-          const price = Number(r?.valorUnitarioHomologado);
-          if (Number.isFinite(price)) { s._sum += price; s._priceCount++; }
-          if (s.compras.length < 5) s.compras.push({
-            descricao: item.descricao,
-            orgao: result?.orgao_nome || purchase.orgao,
-            uf: result?.uf || result?.ufSigla || uf || "",
-            data,
-            preco: Number.isFinite(price) ? price : null,
-            link: `https://pncp.gov.br/app/editais/${purchase.orgao}/${purchase.ano}/${purchase.compra}`
-          });
-        }
-        if (resultados.length) matchedItems.push({ descricao: item.descricao, compra: key, numeroItem, quantidade: item.quantidade, unidade: item.unidadeMedida, resultados: resultados.length });
-      }
-      if (items.length < 50) stopPurchase = true;
-      itemPage++;
-    }
-    purchasesProcessed++;
-    await new Promise(r => setTimeout(r, 350));
+    purchases.push({ purchase, result, key });
+    if (purchases.length >= maxCompras) break;
   }
+
+  // Small concurrency pool. A single failed purchase is discarded, not fatal.
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= purchases.length) return;
+      const {purchase,result,key} = purchases[idx];
+      try {
+        let items = await pncpGetItems(purchase, 1);
+        let rows = Array.isArray(items) ? items : [];
+        let matches = rows.filter(item => descriptionMatches(item?.descricao, q) && item?.temResultado !== false && (item?.numeroItem ?? item?.numero) != null).slice(0, 12);
+        if (!matches.length && rows.length >= 50) {
+          try { const page2 = await pncpGetItems(purchase, 2); const rows2 = Array.isArray(page2) ? page2 : []; rows = rows.concat(rows2); matches = rows2.filter(item => descriptionMatches(item?.descricao, q) && item?.temResultado !== false && (item?.numeroItem ?? item?.numero) != null).slice(0, 12); } catch (_) {}
+        }
+        await Promise.all(matches.map(async item => {
+          const numeroItem = item?.numeroItem ?? item?.numero;
+          try {
+            const resultados = await pncpGetResults(purchase, numeroItem);
+            if (!Array.isArray(resultados) || !resultados.length) return;
+            for (const r of resultados) await mapSupplierRecord(suppliers, r, {
+              fonte: "PNCP", descricao:item.descricao, orgao:result?.orgao_nome || "", uf:result?.uf || result?.ufSigla || uf || "",
+              link:`https://pncp.gov.br/app/editais/${purchase.orgao}/${purchase.ano}/${purchase.compra}`
+            });
+            matchedItems.push({ descricao:item.descricao, compra:key, numeroItem, quantidade:item.quantidade, unidade:item.unidadeMedida, resultados:resultados.length });
+          } catch (err) { console.warn("PNCP resultados", key, numeroItem, err.message); }
+        }));
+      } catch (err) { console.warn("PNCP itens", key, err.message); }
+      purchasesProcessed++;
+    }
+  }
+  await Promise.all(Array.from({length:10}, worker));
+
+  // Secondary federal source. It is deliberately best-effort and never blocks
+  // the main map when Compras.gov.br is unstable.
+  let comprasRows = 0;
+  try { comprasRows = await comprasGovRecentSearch(q, uf, suppliers); } catch (err) { console.warn("Compras.gov", err.message); }
 
   const list = [...suppliers.values()].map(s => {
     s.precoMedio = s._priceCount ? s._sum / s._priceCount : null;
+    s.fontes = [...s.fontes];
     delete s._sum; delete s._priceCount;
     return s;
   });
 
-  // Enriquecimento telefônico limitado para evitar excesso de chamadas externas.
-  for (const s of list.slice(0, 15)) {
+  // Phone enrichment is parallel and capped so it never becomes the bottleneck.
+  await Promise.all(list.slice(0, 80).map(async s => {
     s.telefone = await enrichPhone(s.cnpj);
     if (!s.telefone) s.telefone = "SEM TELEFONE PUBLICO";
-  }
-  for (const s of list.slice(15)) s.telefone = "SEM TELEFONE PUBLICO";
+  }));
+  for (const s of list.slice(80)) s.telefone = "SEM TELEFONE PUBLICO";
 
   list.sort((a,b) => b.registros - a.registros || String(a.nome).localeCompare(String(b.nome), "pt-BR"));
   res.json({
-    fonte: "PNCP + dados cadastrais públicos para telefone",
-    aviso: "A busca de fornecedores é uma implementação própria baseada em dados públicos do PNCP; não é o endpoint interno do Mapa de Fornecedores do Banco de Preços.",
-    consulta: q,
-    uf: uf || "TODAS",
-    comprasAnalisadas: purchasesProcessed,
-    totalResultadosBusca: Number(searchData?.total || searchItems.length || 0),
-    itensCorrespondentes: matchedItems.length,
-    totalFornecedores: list.length,
-    totalMeEpp: list.filter(s => s.meEpp).length,
-    fornecedores: list,
-    itens: matchedItems.slice(0, 50)
+    fonte: "PNCP + Compras.gov.br + dados cadastrais públicos para telefone",
+    aviso: "Mapa próprio baseado em dados públicos. A cobertura depende dos registros disponíveis e da resposta das fontes no momento da pesquisa.",
+    consulta:q, uf:uf||"TODAS", comprasAnalisadas:purchasesProcessed,
+    totalResultadosBusca: searchPages.reduce((n,d)=>n+Number(d?.total||0),0), itensCorrespondentes:matchedItems.length,
+    registrosComprasGov:comprasRows, totalFornecedores:list.length, totalMeEpp:list.filter(s=>s.meEpp).length,
+    fornecedores:list, itens:matchedItems.slice(0,100)
   });
 }
 
