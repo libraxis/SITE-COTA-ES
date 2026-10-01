@@ -35,7 +35,7 @@ function showView(view){
   $$(".view").forEach(v=>v.classList.add("hidden"));
   $(`#${view}View`).classList.remove("hidden");
   $$(".nav").forEach(n=>n.classList.toggle("active", n.dataset.view===view));
-  const titles={dashboard:"Visão geral",cotacoes:"Cotações",criar:"Criar cotação",catalogos:"Catálogos"};
+  const titles={dashboard:"Visão geral",cotacoes:"Cotações",criar:"Criar cotação",catalogos:"Catálogos",fornecedores:"FORNECEDORES"};
   $("#pageTitle").textContent=titles[view]||"BP4";
 }
 
@@ -234,6 +234,46 @@ async function createItem(e){
   }catch(err){toast(err.message,true);}
 }
 
+
+
+async function searchFornecedores(e){
+  e.preventDefault();
+  const input=$("#fornecedorSearch");
+  const query=String(input?.value || "").trim();
+  if(query.length < 2){ toast("Informe pelo menos 2 caracteres do descritivo.", true); input?.focus(); return; }
+  const button=$("#buscarFornecedores");
+  const statusBox=$("#fornecedorStatus");
+  const result=$("#fornecedorResult");
+  const tbody=$("#fornecedoresTable tbody");
+  button.disabled=true;
+  result.classList.remove("hidden");
+  statusBox.classList.remove("hidden");
+  statusBox.textContent="Consultando itens e fornecedores na BP4. Isso pode levar alguns segundos...";
+  tbody.innerHTML='<tr><td colspan="6" class="empty">Pesquisando...</td></tr>';
+  try{
+    const data=await api(`/api/fornecedores?descricao=${encodeURIComponent(query)}`);
+    const rows=data?.fornecedores || [];
+    $("#fornecedorCount").textContent=rows.length;
+    if(!rows.length){
+      tbody.innerHTML='<tr><td colspan="6" class="empty">Nenhum fornecedor encontrado para esse descritivo nas cotações visíveis à sua conta.</td></tr>';
+    }else{
+      tbody.innerHTML=rows.map(f=>`<tr>
+        <td><strong>${esc(f.nomeFantasia || f.razaoSocial || "Fornecedor sem nome público")}</strong>${f.razaoSocial && f.nomeFantasia && f.razaoSocial!==f.nomeFantasia?`<br><small class="muted">${esc(f.razaoSocial)}</small>`:""}</td>
+        <td>${esc(f.cnpj)}</td>
+        <td>${esc(f.telefone || "SEM TELEFONE PUBLICO")}</td>
+        <td>${esc(f.ocorrencias)}</td>
+        <td>${esc(f.quantidadeItens)}</td>
+        <td>${esc(f.fontes)}</td>
+      </tr>`).join("");
+    }
+    statusBox.textContent=`Busca concluída: ${data?.itensEncontrados || 0} item(ns) compatível(is) e ${rows.length} fornecedor(es).`;
+  }catch(err){
+    tbody.innerHTML=`<tr><td colspan="6" class="empty">${esc(err.message)}</td></tr>`;
+    statusBox.textContent="Não foi possível concluir a pesquisa.";
+    toast(err.message,true);
+  }finally{button.disabled=false;}
+}
+
 async function loadUnits(){
   const data=await api("/api/catalogos/unidades");
   const arr=normalizeArray(data);
@@ -258,6 +298,7 @@ $("#loadCotacoes").addEventListener("click",loadCotacoes);
 $("#cotacaoSearch").addEventListener("input",renderCotacoes);
 $("#createCotacaoForm").addEventListener("submit",createCotacao);
 $("#createItemForm").addEventListener("submit",createItem);
+$("#fornecedorSearchForm").addEventListener("submit",searchFornecedores);
 $("#loadUnits").addEventListener("click",()=>loadUnits().catch(e=>toast(e.message,true)));
 $("#loadCities").addEventListener("click",()=>loadCities().catch(e=>toast(e.message,true)));
 $("#quickUnits").addEventListener("click",()=>{showView("catalogos");loadUnits().catch(e=>toast(e.message,true));});

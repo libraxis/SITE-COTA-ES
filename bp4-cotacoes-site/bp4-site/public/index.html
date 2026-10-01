@@ -19,6 +19,7 @@
       <button class="nav" data-view="cotacoes">Cotações</button>
       <button class="nav" data-view="criar">Criar cotação</button>
       <button class="nav" data-view="catalogos">Catálogos</button>
+      <button class="nav" data-view="fornecedores">FORNECEDORES</button>
     </nav>
     <div class="sidebar-bottom">
       <div id="authBadge" class="auth-badge offline">Desconectado</div>
@@ -128,6 +129,21 @@
       <div id="createResult" class="card hidden"></div>
     </section>
 
+    <section id="fornecedoresView" class="view hidden">
+      <div class="card supplier-search-card">
+        <div class="card-head"><div><h3>Pesquisar fornecedores</h3><p class="muted">Digite o descritivo de um item para localizar fornecedores que já aparecem nos preços retornados pela BP4.</p></div></div>
+        <form id="fornecedorSearchForm" class="toolbar supplier-toolbar">
+          <input id="fornecedorSearch" name="descricao" required minlength="2" placeholder="Ex.: resma de papel A4 75g" autocomplete="off">
+          <button class="primary" id="buscarFornecedores" type="submit">Pesquisar fornecedores</button>
+        </form>
+        <div id="fornecedorStatus" class="notice hidden"></div>
+      </div>
+      <div id="fornecedorResult" class="card hidden" style="margin-top:18px">
+        <div class="card-head"><h3>Fornecedores encontrados</h3><span id="fornecedorCount" class="badge">0</span></div>
+        <div class="table-wrap"><table id="fornecedoresTable"><thead><tr><th>Fornecedor</th><th>CNPJ</th><th>Telefone</th><th>Ocorrências</th><th>Itens</th><th>Fontes</th></tr></thead><tbody><tr><td colspan="6" class="empty">Nenhuma pesquisa realizada.</td></tr></tbody></table></div>
+      </div>
+    </section>
+
     <section id="catalogosView" class="view hidden">
       <div class="grid two">
         <div class="card">
@@ -142,6 +158,6 @@
     </section>
   </main>
 
-  <script src="/app.js?v=3"></script>
+  <script src="/app.js?v=4"></script>
 </body>
 </html>
