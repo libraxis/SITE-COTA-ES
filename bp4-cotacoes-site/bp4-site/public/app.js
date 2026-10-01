@@ -282,7 +282,7 @@ function renderAnalyzedPurchases(){
   if(!supplierPurchases.length){ box.classList.add("hidden"); return; }
   const rows=supplierPurchases.map(c=>`<tr><td>${esc(c.descricao||"—")}</td><td>${esc(c.orgao||"—")}</td><td>${esc(c.uf||"—")}</td><td>${esc(fmtDate(c.data))}</td><td>${esc(c.itensCorrespondentes??0)}</td><td>${esc(c.fornecedoresEncontrados??0)}</td><td>${esc(c.status||"—")}</td><td>${c.link?`<a href="${esc(c.link)}" target="_blank" rel="noopener">Abrir PNCP</a>`:'—'}</td></tr>`).join("");
   box.innerHTML=`<div class="supplier-purchases-head"><div><h3>Compras analisadas</h3><span class="muted">${supplierPurchases.length} contratação(ões) efetivamente analisada(s).</span></div><div class="supplier-purchases-actions"><button type="button" class="ghost" id="supplierPurchasesCsv">Exportar CSV</button><button type="button" class="ghost" id="supplierPurchasesClose">Fechar</button></div></div><div class="table-wrap"><table><thead><tr><th>Descrição</th><th>Órgão</th><th>UF</th><th>Data</th><th>Itens</th><th>Fornecedores</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  box.classList.remove("hidden");
+  box.classList.add("hidden");
   $("#supplierPurchasesClose").addEventListener("click",()=>box.classList.add("hidden"));
   $("#supplierPurchasesCsv").addEventListener("click",exportSupplierPurchasesCsv);
 }
