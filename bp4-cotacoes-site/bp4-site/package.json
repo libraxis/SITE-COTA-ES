@@ -1,0 +1,19 @@
+{
+  "name": "bp4-cotacoes-site",
+  "version": "1.4.0",
+  "private": true,
+  "description": "ST Cotações 1.4 - enriquecimento de contatos, painel e exportação CSV",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^5.1.0",
+    "express-session": "^1.18.2"
+  }
+}
