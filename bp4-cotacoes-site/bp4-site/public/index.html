@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Sistema de Cotações</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Navegação -->
+  <nav class="nav-tabs">
+    <button class="tab-link active" onclick="openTab('fornecedores')">Fornecedores</button>
+    <button class="tab-link" id="tab-painel" style="display: none;" onclick="openTab('painel')">PAINEL</button>
+  </nav>
+
+  <!-- Aba Fornecedores -->
+  <div id="fornecedores" class="tab-content active">
+    <h2>Lista de Fornecedores</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Nome</th>
+          <th>E-mail</th>
+          <th>Telefone</th>
+        </tr>
+      </thead>
+      <tbody id="tabela-fornecedores"></tbody>
+    </table>
+  </div>
+
+  <!-- Aba PAINEL (Exclusiva do Admin) -->
+  <div id="painel" class="tab-content">
+    <h2>Painel Administrativo</h2>
+    <div class="card-admin">
+      <h3>Status do Site</h3>
+      <label class="switch">
+        <input type="checkbox" id="toggle-manutencao" onchange="alternarManutencao(this.checked)">
+        <span class="slider round"></span>
+      </label>
+      <p>Ative esta opção para <strong>fechar o site para manutenção</strong> para os usuários comuns.</p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
