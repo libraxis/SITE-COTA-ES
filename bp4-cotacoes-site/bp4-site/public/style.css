@@ -22,5 +22,3 @@ body.locked .login-view { min-height:calc(100vh - 90px); }
 .admin-password-field{min-width:0}
 .admin-password-help{display:block;padding:10px 12px;border:1px solid #dbe4ef;border-radius:10px;background:#f7f9fc;line-height:1.45;color:#5f6f82}
 @media (max-width:700px){.admin-password-row{grid-template-columns:1fr}.admin-password-help{margin-top:0}}
-
-.dossie-card{margin-top:18px}.dossie-card .card-head h3{margin:0}.dossie-card .table-wrap.small{max-height:650px}.dossie-card h4{margin-bottom:8px}.dossie-card ul{margin:0;padding-left:20px}.dossie-card .supplier-detail-grid{margin-bottom:10px}
