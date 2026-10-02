@@ -24,6 +24,8 @@ const CONTACT_SEARCH_MAX = Number(process.env.CONTACT_SEARCH_MAX || 200);
 const CONTACT_SEARCH_TIMEOUT = Number(process.env.CONTACT_SEARCH_TIMEOUT || 12000);
 const COMPRAS_BASE = process.env.COMPRAS_API_URL || "https://dadosabertos.compras.gov.br";
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || "").trim();
+let maintenanceMode = false;
+const MAINTENANCE_MESSAGE = "O sistema está temporariamente fechado para manutenção. Tente novamente mais tarde.";
 
 // Cache em memória + deduplicação de requisições em andamento.
 // Isso reduz bastante o tempo em pesquisas repetidas e evita consultar a mesma URL
@@ -62,6 +64,22 @@ app.use(session({
   }
 }));
 
+function maintenanceHtml() {
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Manutenção — ST Cotações</title><style>body{font-family:Arial,sans-serif;background:#f4f6f8;display:grid;place-items:center;min-height:100vh;margin:0;color:#18212f}.box{max-width:620px;margin:24px;padding:40px;background:#fff;border-radius:18px;box-shadow:0 12px 40px rgba(0,0,0,.08);text-align:center}.icon{font-size:52px}.box h1{margin:14px 0 8px}.box p{color:#667085;line-height:1.6}</style></head><body><main class="box"><div class="icon">🔧</div><h1>Sistema em manutenção</h1><p>${MAINTENANCE_MESSAGE}</p></main></body></html>`;
+}
+function maintenanceAllows(req) {
+  if (!maintenanceMode) return true;
+  const p = String(req.path || "");
+  if (p === "/api/auth/login" || p === "/api/auth/status" || p === "/api/auth/logout") return true;
+  if (req.session?.isAdmin === true) return true;
+  if (p === "/maintenance.html") return true;
+  return false;
+}
+app.use((req,res,next) => {
+  if (maintenanceAllows(req)) return next();
+  if (String(req.path || "").startsWith("/api/")) return res.status(503).json({ error: MAINTENANCE_MESSAGE, maintenance: true });
+  res.status(503).type("html").send(maintenanceHtml());
+});
 app.use(express.static(path.join(__dirname, "public")));
 
 // Registro de acessos do painel. Fica em memória neste processo do Render.
@@ -216,7 +234,7 @@ function extractPublicContactsFromCnpjBiz(html) {
   const phones = [...new Set((raw.match(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\s*)?\d{4}[\s.-]?\d{4}/g) || [])
     .map(x => x.replace(/\s+/g, " ").trim())
     .filter(x => x.replace(/\D/g, "").length >= 10 && x.replace(/\D/g, "").length <= 13))];
-  return { email: emails[0] || null, telefone: phones[0] || null };
+  return { email: pickBestEmail(emails), telefone: phones[0] || null };
 }
 
 async function bp4Fetch(endpoint, options = {}) {
@@ -372,6 +390,23 @@ async function pncpGetResults(purchase, numeroItem) {
 }
 
 
+function emailPriority(email, nome = "") {
+  const e = String(email || "").toLowerCase();
+  const local = e.split("@")[0] || "";
+  let score = 0;
+  if (/(compras|licit|licitacao|licitacoes|pregao|cotacao|cotacoes|suprimentos|comercial|vendas|orcamento|propostas|proposta)/i.test(local)) score += 100;
+  if (/(contato|atendimento|sac)/i.test(local)) score += 60;
+  if (/(financeiro|fiscal|faturamento|administrativo)/i.test(local)) score += 35;
+  if (/(gmail|hotmail|outlook|yahoo|bol|uol)/i.test(e)) score -= 10;
+  const company = normalizeCompanyName(nome).split(" ").filter(x => x.length >= 4);
+  const domain = e.split("@")[1] || "";
+  if (company.some(t => domain.includes(t))) score += 45;
+  return score;
+}
+function pickBestEmail(emails, nome = "") {
+  return [...new Set((emails || []).map(cleanEmail).filter(Boolean))]
+    .sort((x,y) => emailPriority(y,nome) - emailPriority(x,nome) || x.localeCompare(y))[0] || null;
+}
 function cleanEmail(value) {
   const m = String(value || "").toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
   if (!m) return null;
@@ -443,7 +478,7 @@ function extractContactsFromText(text) {
   const raw=decodeHtmlEntities(String(text||"").replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," "));
   const emails=[...new Set((raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)||[]).map(cleanEmail).filter(Boolean))];
   const phones=[...new Set((raw.match(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\s*)?\d{4}[\s.-]?\d{4}/g)||[]).map(cleanPhone).filter(Boolean))];
-  return {email:emails[0]||null,telefone:phones[0]||null,emails,telefones:phones};
+  return {email:pickBestEmail(emails),telefone:phones[0]||null,emails,telefones:phones};
 }
 function contactBelongsToCnpj(text,cnpj){ const digits=onlyDigits(cnpj); return digits.length===14&&String(text||"").replace(/\D/g,"").includes(digits); }
 async function fetchPublicContactPages(cnpj,nome){
@@ -1327,7 +1362,7 @@ app.post("/api/auth/heartbeat", asyncRoute(async (req, res) => {
 app.get("/api/auth/status", asyncRoute(async (req, res) => {
   if (req.session.apiToken) await ensureJwt(req);
   touchAccess(req);
-  res.json({ authenticated: !!req.session.apiToken && !!req.session.jwt, jwtValidUntil: req.session.jwtExpiresAt || null });
+  res.json({ authenticated: !!req.session.apiToken && !!req.session.jwt, isAdmin: sessionIsAdmin(req), maintenance: maintenanceMode, jwtValidUntil: req.session.jwtExpiresAt || null });
 }));
 function sessionIsAdmin(req) {
   return req.session?.isAdmin === true;
@@ -1335,6 +1370,7 @@ function sessionIsAdmin(req) {
 
 app.get("/api/painel/acessos", asyncRoute(async (req, res) => {
   await ensureJwt(req);
+  if (!sessionIsAdmin(req)) return res.status(403).json({ error: "Somente o administrador pode acessar o Painel." });
   const ownIp = clientIp(req);
   res.json({ acessos: accessRows(), meuIp: ownIp, souAdmin: sessionIsAdmin(req), inatividadeMs: ACCESS_INACTIVE_MS });
 }));
@@ -1357,6 +1393,18 @@ app.post("/api/painel/deslogar-ip", asyncRoute(async (req, res) => {
   })));
   for (const row of targets) { row.logoutAt = now; row.lastSeenAt = now; row.status = "DESLOGADO PELO PAINEL"; }
   res.json({ ok: true, ip: targetIp, sessoesDeslogadas: targets.length });
+}));
+
+app.get("/api/maintenance/status", asyncRoute(async (req,res) => {
+  await ensureJwt(req);
+  if (!sessionIsAdmin(req)) return res.status(403).json({ error:"Somente o administrador pode consultar o modo manutenção." });
+  res.json({ maintenance: maintenanceMode });
+}));
+app.post("/api/maintenance/toggle", asyncRoute(async (req,res) => {
+  await ensureJwt(req);
+  if (!sessionIsAdmin(req)) return res.status(403).json({ error:"Somente o administrador pode alterar o modo manutenção." });
+  maintenanceMode = req.body?.enabled === true;
+  res.json({ ok:true, maintenance:maintenanceMode, message:maintenanceMode ? "Sistema fechado para manutenção." : "Sistema liberado para os usuários." });
 }));
 
 app.get("/api/cotacoes", asyncRoute(async (req, res) => res.json(await authenticatedCall(req, "/api/bp4/Cotacoes/GetCotacoes"))));
