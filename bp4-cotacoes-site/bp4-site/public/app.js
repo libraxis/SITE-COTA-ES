@@ -2,6 +2,8 @@
 let cotacoes = [];
 let currentView = "fornecedores";
 let authenticated = false;
+let isAdmin = false;
+let maintenance = false;
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -32,7 +34,8 @@ async function api(url, options={}){
 }
 
 function showView(view){
-  if(!authenticated) return;
+  if(!authenticated || (maintenance && !isAdmin)) return;
+  if(view==="painel" && !isAdmin) view="fornecedores";
   currentView = view;
   $$(".view").forEach(v=>v.classList.add("hidden"));
   $(`#${view}View`).classList.remove("hidden");
@@ -64,8 +67,13 @@ async function status(){
   try{
     const s=await api("/api/auth/status");
     authenticated = !!s.authenticated;
+    isAdmin = !!s.isAdmin;
+    maintenance = !!s.maintenance;
+    $(".nav[data-view=\"painel\"]")?.classList.toggle("hidden", !isAdmin);
     document.body.classList.toggle("locked", !authenticated);
     if(authenticated){
+      if(maintenance && !isAdmin){ document.body.classList.add("maintenance-mode"); $("#loginView").classList.add("hidden"); $(".view:not(#loginView)").forEach(v=>v.classList.add("hidden")); $("#maintenanceView")?.classList.remove("hidden"); $("#pageTitle").textContent="Sistema em manutenção"; stopHeartbeat(); return; }
+      document.body.classList.remove("maintenance-mode"); $("#maintenanceView")?.classList.add("hidden");
       $("#authBadge").className="auth-badge online";
       $("#authBadge").textContent="Conectado";
       $("#loginView").classList.add("hidden");
@@ -423,6 +431,12 @@ async function searchSuppliers(e){
 }
 
 
+async function toggleMaintenance(){
+  if(!isAdmin) return;
+  const enabled=$("#maintenanceToggle")?.checked===true;
+  try{ const data=await api("/api/maintenance/toggle",{method:"POST",body:JSON.stringify({enabled})); maintenance=!!data.maintenance; toast(data.message||"Estado de manutenção atualizado."); await status(); }
+  catch(e){ if($("#maintenanceToggle")) $("#maintenanceToggle").checked=!enabled; toast(e.message||"Não foi possível alterar o modo manutenção.",true); }
+}
 let painelTimer=null;
 async function heartbeat(){
   if(!authenticated) return;
@@ -461,7 +475,7 @@ function renderPainel(rows, meuIp, souAdmin=false){
   }).join(""):'<tr><td colspan="6" class="empty">Nenhum acesso registrado.</td></tr>';
 }
 async function loadPainel(){
-  if(!authenticated) return;
+  if(!authenticated || !isAdmin) return;
   const loading=$("#painelLoading"); loading.classList.remove("hidden");
   try{
     const data=await api("/api/painel/acessos");
@@ -473,7 +487,7 @@ async function loadPainel(){
     $("#painelStats").classList.remove("hidden"); $("#painelResults").classList.remove("hidden");
     $("#painelNotice").classList.remove("hidden");
     $("#painelNotice").textContent="Os registros ficam em memória enquanto esta instância do sistema estiver ativa. Fechamento do navegador sem Sair é identificado como inatividade após cerca de 90 segundos.";
-    renderPainel(rows, meuIp, !!data.souAdmin);
+    renderPainel(rows, meuIp, !!data.souAdmin); if($("#maintenanceToggle")) $("#maintenanceToggle").checked=maintenance;
   }catch(e){ $("#painelNotice").textContent=e?.message||"Não foi possível carregar o painel."; $("#painelNotice").classList.remove("hidden"); toast($("#painelNotice").textContent,true); }
   finally{ loading.classList.add("hidden"); }
 }
@@ -541,7 +555,7 @@ async function searchAtas(event){
 }
 
 $$('.nav').forEach(n=>n.addEventListener("click",async()=>{
-  if(!authenticated) return;
+  if(!authenticated || (n.dataset.view==="painel" && !isAdmin)) return;
   showView(n.dataset.view);
   if(n.dataset.view==="painel") await loadPainel();
 }));
@@ -565,6 +579,7 @@ $("#ataSearchForm").addEventListener("submit",searchAtas);
 $("#ataFilter").addEventListener("input",renderAtaRows);
 $("#ataTable").addEventListener("click",e=>{ const b=e.target.closest(".ata-detail-btn"); if(b) openAtaDetail(b.dataset.ataControl); });
 $("#loadPainel").addEventListener("click",loadPainel);
+$("#maintenanceToggle")?.addEventListener("change",toggleMaintenance);
 $("#painelTable").addEventListener("click", async (e)=>{
   const btn=e.target.closest(".painel-kick-btn");
   if(!btn) return;

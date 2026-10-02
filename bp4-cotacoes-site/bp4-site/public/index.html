@@ -17,7 +17,7 @@
     <nav>
       <button class="nav active" data-view="fornecedores">Fornecedores</button>
       <button class="nav" data-view="atas">ATA de Registro de Preços</button>
-      <button class="nav" data-view="painel">Painel</button>
+      <button class="nav hidden" data-view="painel">Painel</button>
     </nav>
     <div class="sidebar-bottom">
       <div id="authBadge" class="auth-badge offline">Desconectado</div>
@@ -57,6 +57,8 @@
       </div>
     </section>
 
+
+    <section id="maintenanceView" class="view hidden"><div class="card login-card" style="max-width:720px;margin:60px auto;text-align:center"><div class="logo large">🔧</div><h2>Sistema em manutenção</h2><p class="muted">O sistema está temporariamente fechado para manutenção. Tente novamente mais tarde.</p></div></section>
 
     <section id="fornecedoresView" class="view hidden">
       <div class="card supplier-hero">
@@ -115,7 +117,7 @@
     <section id="painelView" class="view hidden">
       <div class="card supplier-hero">
         <div class="card-head"><div><div class="eyebrow">PAINEL DE ACESSOS</div><h3>Pessoas conectadas ao ST Cotações</h3></div><button class="ghost" id="loadPainel">Atualizar</button></div>
-        <p class="muted">Mostra o IP, o horário de login, a última atividade e se a sessão foi encerrada. Ao lado dos outros IPs aparece <strong>DESLOGAR</strong>; isso encerra todas as sessões daquele IP e faz o acesso voltar para a tela de inserir token.</p>
+        <div class="maintenance-control"><label><input id="maintenanceToggle" type="checkbox"> Fechar o sistema para manutenção</label><small>Somente o administrador pode alterar esta opção. Usuários comuns não conseguem acessar o sistema enquanto ela estiver ativa.</small></div><p class="muted">Mostra o IP, o horário de login, a última atividade e se a sessão foi encerrada. Ao lado dos outros IPs aparece <strong>DESLOGAR</strong>; isso encerra todas as sessões daquele IP e faz o acesso voltar para a tela de inserir token.</p>
       </div>
       <div id="painelLoading" class="card hidden"><div class="notice">Atualizando painel...</div></div>
       <div id="painelStats" class="stats hidden">
