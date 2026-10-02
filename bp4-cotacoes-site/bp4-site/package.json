@@ -1,0 +1,12 @@
+{
+  "name": "st-cotacoes",
+  "version": "1.8.10",
+  "description": "Sistema de Cotações com Painel Administrativo e Gestão de Fornecedores",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
